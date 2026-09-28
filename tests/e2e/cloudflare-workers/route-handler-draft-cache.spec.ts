@@ -71,6 +71,8 @@ test.describe("Cloudflare route-handler draft-mode cache isolation", () => {
   // The browser/edge split and gateway personalization are Workers-specific.
   for (const [pathname, cacheControl] of [
     ["/api/browser-cache", "private, max-age=10"],
+    ["/api/browser-cache-swr", "private, max-age=10, stale-while-revalidate=60"],
+    ["/api/browser-cache-generated-edge", "private, max-age=10, stale-while-revalidate=60"],
     ["/api/browser-cache-shared", "private, max-age=300"],
     ["/api/browser-cache-static", "private, max-age=300"],
     ["/api/browser-cache-config", "private, max-age=300"],
@@ -474,6 +476,15 @@ test.describe("Cloudflare Pages-only completed-response admission", () => {
     expect(response.headers()["cache-control"]).toBe("private, max-age=10");
     expect(response.headers()["cdn-cache-control"]).toBeUndefined();
     expect(response.headers()["cloudflare-cdn-cache-control"]).toBeUndefined();
+  });
+
+  test("preserves an independent Pages browser stale window", async ({ request }) => {
+    const response = await request.get(`${pagesBaseUrl}/api/browser-cache-pages-swr`);
+    expect(response.status()).toBe(200);
+    expect(await response.json()).toEqual({ browserCache: true });
+    expect(response.headers()["cache-control"]).toBe(
+      "private, max-age=10, stale-while-revalidate=60",
+    );
   });
 
   test("revalidates browser reuse when conditional middleware is eligible", async ({ request }) => {

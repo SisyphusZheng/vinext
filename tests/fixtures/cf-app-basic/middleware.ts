@@ -75,7 +75,7 @@ export async function middleware(request: NextRequest) {
 // pathname eligibility even when the request-specific matcher does not run.
 export const config = {
   matcher: [
-    "/((?!api/browser-cache(?:-pages)?(?:-(?:shared|static|config|conditional|middleware|redirect|rewrite))?$).*)",
+    "/((?!api/browser-cache(?:-pages)?(?:-(?:shared|static|config|conditional|middleware|redirect|rewrite|swr|generated-edge))?$).*)",
     {
       source: "/api/browser-cache-middleware",
       has: [{ type: "header", key: "x-test-visitor-id" }],

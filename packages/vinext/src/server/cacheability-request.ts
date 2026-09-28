@@ -1,4 +1,5 @@
 import type { ExecutionContextLike } from "vinext/shims/request-context";
+import { splitCacheControlDirectives } from "vinext/shims/cdn-cache";
 import {
   CACHEABILITY_REQUEST_STATE,
   recordConfigCdnCachePolicyHeader,
@@ -607,6 +608,13 @@ function responseWithCachePolicy(
   browserCacheControl?: string,
 ): Response {
   const headers = new Headers(response.headers);
+  // When Cache-Control also owns the edge policy, consume its stale window at
+  // the edge (Vercel parity). A separate CDN policy leaves browser SWR intact.
+  if (browserCacheControl && readCdnResponsePolicyHeaderName(headers) === "cache-control") {
+    browserCacheControl = splitCacheControlDirectives(browserCacheControl)
+      .filter((directive) => !/^stale-while-revalidate(?:\s*=|$)/i.test(directive))
+      .join(", ");
+  }
   if (typeof body === "string") headers.delete("Content-Length");
   applyCdnResponseHeaders(
     headers,

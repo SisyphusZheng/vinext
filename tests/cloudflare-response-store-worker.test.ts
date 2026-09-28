@@ -7,6 +7,7 @@ import createResponseStoreDataCacheAdapter, {
   captureResponseStoreRscData,
   deferResponseStoreAdmission,
 } from "../packages/cloudflare/src/cache/response-store-data.runtime.js";
+import createResponseStoreCdnCacheAdapter from "../packages/cloudflare/src/cache/response-store-cdn.runtime.js";
 import { createCanonicalRscRequestHeaders } from "../packages/vinext/src/server/app-rsc-cache-busting.js";
 import { VINEXT_RSC_VARY_HEADER } from "../packages/vinext/src/server/headers.js";
 
@@ -29,6 +30,19 @@ describe("Cloudflare Response Store Worker", () => {
     stages.request.mockImplementation((request, _env, _context, dispatchResponseStage) =>
       dispatchResponseStage(request, { kind: "app-page" }, { cache: "shared" }),
     );
+  });
+
+  it("keeps browser revalidation when sharing the Workers Cache header builder", () => {
+    const adapter = createResponseStoreCdnCacheAdapter({});
+    expect(
+      adapter.buildResponseHeaders({
+        cacheControl: "max-age=3600",
+        browserCacheControl: "private, max-age=10",
+      }),
+    ).toMatchObject({
+      "Cache-Control": "public, max-age=0, must-revalidate",
+      "Cloudflare-CDN-Cache-Control": "public, max-age=3600",
+    });
   });
 
   it("seals framework variance in opaque requests without changing cached responses", async () => {

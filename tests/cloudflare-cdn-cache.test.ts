@@ -263,7 +263,10 @@ describe("CloudflareCdnCacheAdapter", () => {
   it.each([
     ["max-age=10", "max-age=10"],
     ['max-age="10"', 'max-age="10"'],
-    ["public, max-age=300, s-maxage=600, stale-while-revalidate=60", "public, max-age=300"],
+    [
+      "public, max-age=300, s-maxage=600, stale-while-revalidate=60",
+      "public, max-age=300, stale-while-revalidate=60",
+    ],
     ["private, max-age=10", "private, max-age=10"],
     ["no-store", "no-store"],
     ["no-cache", "no-cache"],
@@ -300,7 +303,7 @@ describe("CloudflareCdnCacheAdapter", () => {
       cacheControl: policy,
       browserCacheControl: policy,
     });
-    expect(headers["Cache-Control"]).toBe("public, max-age=10");
+    expect(headers["Cache-Control"]).toBe("public, max-age=10, stale-while-revalidate=60");
     expect(headers["Cloudflare-CDN-Cache-Control"]).toBe(
       "public, max-age=3600, stale-while-revalidate=60",
     );
@@ -317,7 +320,7 @@ describe("CloudflareCdnCacheAdapter", () => {
       cacheControl: policy,
       browserCacheControl: policy,
     });
-    expect(headers["Cache-Control"]).toBe(`${extension}, max-age=10`);
+    expect(headers["Cache-Control"]).toBe(`${extension}, max-age=10, stale-while-revalidate`);
     expect(headers["Cloudflare-CDN-Cache-Control"]).toBe(
       `public, ${extension}, max-age=60, stale-while-revalidate=31536000`,
     );

@@ -3,6 +3,10 @@ import type { NextConfig } from "vinext";
 const nextConfig: NextConfig = {
   async headers() {
     return [
+      {
+        source: "/api/browser-cache-generated-edge",
+        headers: [{ key: "Cache-Control", value: "max-age=10, stale-while-revalidate=60" }],
+      },
       ...["/api/browser-cache-conditional", "/api/browser-cache-pages-conditional"].map(
         (source) => ({
           source,

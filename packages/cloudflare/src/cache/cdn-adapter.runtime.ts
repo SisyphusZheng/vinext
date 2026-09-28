@@ -163,7 +163,7 @@ const BROWSER_REVALIDATE = "public, max-age=0, must-revalidate";
 
 function browserCacheControl(policy: string | undefined): string {
   const directives = splitCacheControlDirectives(policy ?? "").filter(
-    (directive) => !/^(?:s-maxage|stale-while-revalidate)(?:\s*=|$)/i.test(directive),
+    (directive) => !/^s-maxage(?:\s*=|$)/i.test(directive),
   );
   // Extensions alone still permit heuristic freshness (for example from
   // Last-Modified); preserve only an explicit lifetime or cache prohibition.

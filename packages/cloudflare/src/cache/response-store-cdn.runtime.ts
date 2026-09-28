@@ -34,7 +34,9 @@ class ResponseStoreCdnCacheAdapter implements CdnCacheAdapter {
     return this.headers.buildResponseIdentityHeaders?.() ?? {};
   }
   buildResponseHeaders(input: CdnCacheableHeaderInput): CdnResponseHeaders {
-    return this.headers.buildResponseHeaders(input);
+    // Browser-policy preservation is guarded by the Workers Cache gateway.
+    // Response Store retains its existing browser revalidation policy.
+    return this.headers.buildResponseHeaders({ ...input, browserCacheControl: undefined });
   }
   deferCompletedPageResponseAdmission(
     response: Response,
