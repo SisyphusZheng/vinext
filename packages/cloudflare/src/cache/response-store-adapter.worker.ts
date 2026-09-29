@@ -526,7 +526,9 @@ const handler = {
               );
             }),
         );
-        return publicResponse(rendered, "MISS", props, true);
+        // The foreground can precede admission. Retain browser revalidation
+        // until the completed response has a proven policy.
+        return publicResponse(rendered, "MISS", props);
       }
       if (!isCacheable(rendered)) {
         void capture?.rscData?.catch(() => {});
