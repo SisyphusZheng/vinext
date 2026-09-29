@@ -11,7 +11,7 @@ const backend = process.env.VINEXT_E2E_CACHE_BACKEND;
 // s-maxage, which do not shorten the browser's authored freshness lifetime.
 for (const policy of ["browser", "shared", "independent", "private", "no-store"]) {
   test(`preserves Next.js browser cache policy: ${policy}`, async ({ baseURL, request }) => {
-    test.skip(!baseURL, "requires a running response-store-demo");
+    test.skip(!baseURL || !backend, "requires a configured response-store-demo backend");
     if (!baseURL) throw new Error("test requires a base URL");
     function expectBrowserPolicy(headers: Record<string, string>, trace: string) {
       const directives = (headers["cache-control"] ?? "").split(",").map((value) => value.trim());
@@ -81,7 +81,7 @@ for (const policy of ["middleware", "config"]) {
     baseURL,
     request,
   }) => {
-    test.skip(!baseURL || backend === "kv", "requires a staged response-cache backend");
+    test.skip(!baseURL || !backend || backend === "kv", "requires a staged response-cache backend");
     // The first request deliberately does not match the conditional config rule.
     // It must revalidate too, so a later matching request reaches the gateway.
     for (const visitor of ["anonymous", "config-a", "config-b"]) {
