@@ -622,7 +622,11 @@ describe("Cloudflare Response Store Worker query-free cache identity", () => {
         ctx,
       );
       expect(response.headers.get("Cache-Control")).toBe(
-        cacheControl.startsWith("private") ? "private, max-age=0, must-revalidate" : cacheControl,
+        cacheControl.startsWith("private")
+          ? "private, max-age=0, must-revalidate"
+          : cacheControl === "no-cache"
+            ? "private, no-cache"
+            : cacheControl,
       );
       await response.text();
       await Promise.all(ctx.waitUntil.mock.calls.map(([promise]) => promise));

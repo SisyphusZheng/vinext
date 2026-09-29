@@ -1,33 +1,22 @@
 import { expect, test } from "@playwright/test";
 import fs from "node:fs";
+import { waitForStablePromotion } from "./promotion.js";
 import { randomUUID } from "node:crypto";
 
 const backend = process.env.VINEXT_E2E_CACHE_BACKEND;
+const verificationStartedAt = Date.now();
 
-// Every deployed test must wait for promotion away from the seed Worker.
-test.beforeAll(async ({ baseURL, request }) => {
+// Every deployed test must wait for stable promotion away from the seed Worker.
+test.beforeAll(async ({ baseURL, playwright }) => {
   if (!backend || !baseURL?.startsWith("https://")) return;
-  test.setTimeout(90_000);
+  test.setTimeout(150_000);
   const buildId = fs
     .readFileSync("examples/response-store-demo/dist/server/BUILD_ID", "utf-8")
     .trim();
-  const deadline = Date.now() + 60_000;
-  let consecutiveReady = 0;
-
-  do {
-    const readiness = await request.get(`${baseURL}/api/prewarm-version?readiness=${randomUUID()}`);
-    if (readiness.ok() && readiness.headers()["x-vinext-seed-worker"] !== "1") {
-      const body = (await readiness.json()) as { buildId?: string };
-      consecutiveReady = body.buildId === buildId ? consecutiveReady + 1 : 0;
-    } else {
-      consecutiveReady = 0;
-    }
-    await readiness.dispose();
-    if (consecutiveReady === 5) break;
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-  } while (Date.now() < deadline);
-
-  expect(consecutiveReady, `${backend} Worker did not finish promotion`).toBe(5);
+  const rscBuildId = fs
+    .readFileSync("examples/response-store-demo/dist/server/RSC_BUILD_ID", "utf-8")
+    .trim();
+  await waitForStablePromotion({ baseURL, buildId, rscBuildId, playwright });
 });
 
 // Next.js production preserves authored Route Handler Cache-Control:
@@ -35,7 +24,7 @@ test.beforeAll(async ({ baseURL, request }) => {
 // Verified with next@16.2.7 build/start, repeated GET and HEAD requests. Compare
 // browser freshness directives: our isolated edge stages add private and consume
 // s-maxage, which do not shorten the browser's authored freshness lifetime.
-for (const policy of ["browser", "shared", "independent", "private", "no-store"]) {
+for (const policy of ["browser", "shared", "independent", "private", "no-cache", "no-store"]) {
   test(`preserves Next.js browser cache policy: ${policy}`, async ({ baseURL, request }) => {
     test.skip(!baseURL || !backend, "requires a configured response-store-demo backend");
     if (!baseURL) throw new Error("test requires a base URL");
@@ -48,7 +37,8 @@ for (const policy of ["browser", "shared", "independent", "private", "no-store"]
       } else {
         expect(directives, trace).toContain("max-age=10");
         expect(directives, trace).not.toContain("no-store");
-        expect(directives, trace).not.toContain("no-cache");
+        if (policy === "no-cache") expect(directives, trace).toContain("no-cache");
+        else expect(directives, trace).not.toContain("no-cache");
         expect(directives, trace).not.toContain("must-revalidate");
         expect(
           directives.filter((value) => value.startsWith("max-age=")),
@@ -60,6 +50,10 @@ for (const policy of ["browser", "shared", "independent", "private", "no-store"]
         if (policy === "private") expect(directives, trace).toContain("private");
       }
       if (backend !== "kv") {
+        if (policy !== "no-store") {
+          expect(directives, trace).toContain("private");
+          expect(directives, trace).not.toContain("public");
+        }
         expect(headers["cloudflare-cdn-cache-control"], trace).toBeUndefined();
         expect(headers["cdn-cache-control"], trace).toBeUndefined();
         expect(headers["x-vinext-cloudflare-shared-response-stage"], trace).toBeUndefined();
@@ -135,7 +129,6 @@ test("deployment pre-warming and force-dynamic bypass work with the configured c
   if (!baseURL) throw new Error("deployed test requires a base URL");
   test.setTimeout(90_000);
 
-  const testStartedAt = Date.now();
   const rscBuildId = fs
     .readFileSync("examples/response-store-demo/dist/server/RSC_BUILD_ID", "utf-8")
     .trim();
@@ -146,17 +139,22 @@ test("deployment pre-warming and force-dynamic bypass work with the configured c
   const warmedHeaders = warmed.headers();
   expect(warmed.ok(), JSON.stringify(warmedHeaders)).toBe(true);
   if (backend === "workers-cache") {
-    expect(["HIT", "MISS"], JSON.stringify(warmedHeaders)).toContain(
+    expect(["HIT", "MISS", "UPDATING"], JSON.stringify(warmedHeaders)).toContain(
       warmedHeaders["cf-cache-status"],
     );
   } else {
-    expect(warmedHeaders["x-vinext-cache"], JSON.stringify(warmedHeaders)).toBe("HIT");
+    // The stability gate exceeds this page's 60-second ISR freshness.
+    // Stale reuse is valid; its 300-second data entry must still predate verification.
+    expect(
+      backend === "kv" ? ["HIT", "STALE"] : ["HIT", "UPDATING"],
+      JSON.stringify(warmedHeaders),
+    ).toContain(warmedHeaders["x-vinext-cache"]);
   }
   const warmedBody = await warmed.text();
   const warmedDataId = /data-cache-id[^>]*>([^<]+)</.exec(warmedBody)?.[1];
   expect(warmedDataId).toBeTruthy();
   const cachedAt = Number(/data-cache-created-at[^>]*>([^<]+)</.exec(warmedBody)?.[1]);
-  expect(cachedAt).toBeLessThan(testStartedAt + 1_000);
+  expect(cachedAt).toBeLessThan(verificationStartedAt + 1_000);
 
   if (backend === "workers-cache" && warmedHeaders["cf-cache-status"] === "MISS") {
     const reused = await request.get(`${baseURL}/cached/intro`, {

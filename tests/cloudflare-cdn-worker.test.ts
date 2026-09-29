@@ -901,38 +901,44 @@ describe("Cloudflare CDN multi-stage Worker facade", () => {
   });
 
   it.each([
-    ["MISS", "max-age=10"],
-    ["HIT", "max-age=10"],
-    ["MISS", "private, max-age=10"],
-    ["HIT", "private, max-age=10"],
-  ])("preserves browser policy on an unchanged %s with %s", async (cacheStatus, cacheControl) => {
-    const binding = vi.fn(() => ({
-      fetch: vi.fn().mockResolvedValue(
-        new Response("shared", {
-          headers: {
-            "Cache-Control": cacheControl,
-            "Cloudflare-CDN-Cache-Control": "public, max-age=3600",
-            "CF-Cache-Status": cacheStatus,
-          },
-        }),
-      ),
-    }));
-    stages.request.mockImplementation((request, _env, _ctx, dispatch) =>
-      dispatch(request, { kind: "app-route" }, { cache: "shared" }),
-    );
+    ["MISS", "max-age=10", "private, max-age=10"],
+    ["HIT", "max-age=10", "private, max-age=10"],
+    ["MISS", "private, max-age=10", "private, max-age=10"],
+    ["HIT", "private, max-age=10", "private, max-age=10"],
+    ["MISS", "public, max-age=10, no-cache", "private, max-age=10, no-cache"],
+    ["HIT", "public, max-age=10, no-cache", "private, max-age=10, no-cache"],
+    ["HIT", 'private="ETag", max-age=10', "private, max-age=10"],
+  ])(
+    "preserves browser policy on an unchanged %s with %s",
+    async (cacheStatus, cacheControl, expected) => {
+      const binding = vi.fn(() => ({
+        fetch: vi.fn().mockResolvedValue(
+          new Response("shared", {
+            headers: {
+              "Cache-Control": cacheControl,
+              "Cloudflare-CDN-Cache-Control": "public, max-age=3600",
+              "CF-Cache-Status": cacheStatus,
+            },
+          }),
+        ),
+      }));
+      stages.request.mockImplementation((request, _env, _ctx, dispatch) =>
+        dispatch(request, { kind: "app-route" }, { cache: "shared" }),
+      );
 
-    const response = await worker.fetch(
-      new Request("https://example.com/api/data"),
-      {},
-      {
-        exports: { VinextCachedResponse: binding },
-      },
-    );
-    expect(response.headers.get("Cache-Control")).toBe("private, max-age=10");
-    expect(response.headers.get("X-Vinext-Cache")).toBe(cacheStatus);
-    expect(response.headers.get("Cloudflare-CDN-Cache-Control")).toBeNull();
-    expect(response.headers.get("x-vinext-cloudflare-shared-response-stage")).toBeNull();
-  });
+      const response = await worker.fetch(
+        new Request("https://example.com/api/data"),
+        {},
+        {
+          exports: { VinextCachedResponse: binding },
+        },
+      );
+      expect(response.headers.get("Cache-Control")).toBe(expected);
+      expect(response.headers.get("X-Vinext-Cache")).toBe(cacheStatus);
+      expect(response.headers.get("Cloudflare-CDN-Cache-Control")).toBeNull();
+      expect(response.headers.get("x-vinext-cloudflare-shared-response-stage")).toBeNull();
+    },
+  );
 
   it("preserves browser policy when config restores a consumed edge header", async () => {
     const binding = vi.fn(() => ({

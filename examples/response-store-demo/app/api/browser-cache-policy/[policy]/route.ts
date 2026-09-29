@@ -14,6 +14,7 @@ const policies: Record<string, Record<string, string>> = {
   },
   middleware: { "Cache-Control": "max-age=10", "Cloudflare-CDN-Cache-Control": "max-age=3600" },
   config: { "Cache-Control": "max-age=10", "Cloudflare-CDN-Cache-Control": "max-age=3600" },
+  "no-cache": { "Cache-Control": "public, max-age=10, no-cache", "Cloudflare-CDN-Cache-Control": "max-age=3600" },
   "no-store": { "Cache-Control": "no-store" },
 };
 

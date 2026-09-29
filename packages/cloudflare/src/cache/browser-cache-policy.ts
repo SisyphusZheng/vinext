@@ -78,11 +78,16 @@ export function finalizeGatewayResponse(
     // The full invocation identity is private to the response cache. Even when
     // this request is unchanged, another visitor can take a different branch
     // through middleware, so downstream shared caches must never reuse it.
-    if (preservesBrowserPolicy && cacheControl && !isNonCacheableCacheControl(cacheControl)) {
-      const directives = splitCacheControlDirectives(cacheControl);
+    const directives = splitCacheControlDirectives(cacheControl ?? "");
+    if (cacheControl && !directives.some((directive) => /^no-store$/i.test(directive))) {
+      // no-cache permits shared storage too. Only no-store can skip this;
+      // qualified private directives do not make the whole response private.
       headers.set(
         "Cache-Control",
-        ["private", ...directives.filter((directive) => !/^public$/i.test(directive))].join(", "),
+        [
+          "private",
+          ...directives.filter((directive) => !/^(?:public|private)(?:\s*=|$)/i.test(directive)),
+        ].join(", "),
       );
     }
     if (!preservesBrowserPolicy && !isNonCacheableCacheControl(cacheControl ?? "", "browser")) {
