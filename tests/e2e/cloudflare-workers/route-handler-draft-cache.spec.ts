@@ -73,8 +73,8 @@ test.describe("Cloudflare route-handler draft-mode cache isolation", () => {
     ["/api/browser-cache", "private, max-age=10"],
     ["/api/browser-cache-swr", "private, max-age=10, stale-while-revalidate=60"],
     ["/api/browser-cache-generated-edge", "private, max-age=10, stale-while-revalidate=60"],
-    ["/api/browser-cache-shared", "private, max-age=300"],
-    ["/api/browser-cache-static", "private, max-age=300"],
+    ["/api/browser-cache-shared", "private, max-age=300, stale-while-revalidate=60"],
+    ["/api/browser-cache-static", "private, max-age=300, stale-while-revalidate=60"],
     ["/api/browser-cache-config", "private, max-age=300"],
   ]) {
     test(`preserves browser cache policy for ${pathname}`, async ({ request }) => {

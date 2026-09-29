@@ -1,6 +1,6 @@
 import type { NextConfig } from "vinext";
 
-const personalizedPaths = ["/prewarm-target", "/pages-prewarm"] as const;
+const personalizedPaths = ["/prewarm-target", "/pages-prewarm", "/api/browser-cache-policy/config"] as const;
 const personalizedVisitors = ["config-a", "config-b"] as const;
 
 export default {

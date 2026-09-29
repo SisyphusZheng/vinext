@@ -19,6 +19,11 @@ import {
 import { loadVinextRequestStage } from "vinext/server/request-stage";
 import { loadVinextResponseStage } from "vinext/server/response-stage";
 import { traceCachedResponseStart } from "vinext/internal/server/response-start-tracing";
+import {
+  finalizeGatewayResponse,
+  SHARED_RESPONSE_STAGE_HEADER,
+  type SharedResponseStage,
+} from "./browser-cache-policy.js";
 import { isNonCacheableCacheControl } from "vinext/shims/cdn-cache";
 import {
   applyRscCompatibilityIdHeader,
@@ -365,6 +370,7 @@ function publicResponse(
   response: Response,
   cacheStatus: string,
   responseStageProps: unknown,
+  shared = false,
 ): Response {
   const headers = new Headers(response.headers);
   const publicCacheStatus =
@@ -393,7 +399,7 @@ function publicResponse(
     headers.set("X-Vinext-Cache", publicCacheStatus);
   }
   const cacheControl = headers.get("Cache-Control");
-  if (!cacheControl || !isNonCacheableCacheControl(cacheControl)) {
+  if (!shared && (!cacheControl || !isNonCacheableCacheControl(cacheControl))) {
     headers.set("Cache-Control", "private, max-age=0, must-revalidate");
   }
   return traceCachedResponseStart(
@@ -474,12 +480,12 @@ const handler = {
       const key = await cacheRequest(invocation);
       const stored = await readStoredResponse(key);
       if (stored) {
-        if (!rscKey) return publicResponse(stored, "HIT", props);
+        if (!rscKey) return publicResponse(stored, "HIT", props, true);
 
         const storedRsc = await readStoredResponse(rscKey);
         if (storedRsc) {
           void storedRsc.body?.cancel().catch(() => {});
-          return publicResponse(stored, "HIT", props);
+          return publicResponse(stored, "HIT", props, true);
         }
         void stored.body?.cancel().catch(() => {});
       }
@@ -520,11 +526,11 @@ const handler = {
               );
             }),
         );
-        return publicResponse(rendered, "MISS", props);
+        return publicResponse(rendered, "MISS", props, true);
       }
       if (!isCacheable(rendered)) {
         void capture?.rscData?.catch(() => {});
-        return publicResponse(rendered, "BYPASS", props);
+        return publicResponse(rendered, "BYPASS", props, true);
       }
       if (rscSeed && !capture?.rscData) {
         await rendered.body?.cancel();
@@ -575,13 +581,36 @@ const handler = {
           },
         );
       }
-      return publicResponse(new Response(foreground, rendered), "MISS", props);
+      return publicResponse(new Response(foreground, rendered), "MISS", props, true);
     };
 
     const { handleRequestStage } = await loadVinextRequestStage<
       VinextResponseStoreEnv,
       StageContext
     >();
-    return handleRequestStage(request, env, context, dispatchResponseStage);
+    const sharedResponses = new Map<string, SharedResponseStage>();
+    const dispatch: VinextResponseStageTransport = async (stageRequest, props, options) => {
+      const response = await dispatchResponseStage(stageRequest, props, options);
+      if (options.cache !== "shared") return response;
+      // Record the normalized foreground response, never the persisted object.
+      const headers = new Headers(response.headers);
+      const token = crypto.randomUUID();
+      headers.set(SHARED_RESPONSE_STAGE_HEADER, token);
+      sharedResponses.set(token, {
+        headers: new Headers(headers),
+        status: response.status,
+        requiresBrowserRevalidation: options.requiresBrowserRevalidation === true,
+      });
+      return new Response(response.body, {
+        headers,
+        status: response.status,
+        statusText: response.statusText,
+      });
+    };
+    return finalizeGatewayResponse(
+      await handleRequestStage(request, env, context, dispatch),
+      sharedResponses,
+      "X-Vinext-Cache",
+    );
   },
 };

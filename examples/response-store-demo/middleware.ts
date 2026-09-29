@@ -9,4 +9,4 @@ export function middleware(request: NextRequest) {
   return response;
 }
 
-export const config = { matcher: ["/prewarm-target", "/pages-prewarm"] };
+export const config = { matcher: ["/prewarm-target", "/pages-prewarm", "/api/browser-cache-policy/middleware"] };

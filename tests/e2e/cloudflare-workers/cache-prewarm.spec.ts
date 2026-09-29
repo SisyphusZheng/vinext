@@ -4,6 +4,103 @@ import { randomUUID } from "node:crypto";
 
 const backend = process.env.VINEXT_E2E_CACHE_BACKEND;
 
+// Next.js production preserves authored Route Handler Cache-Control:
+// https://github.com/vercel/next.js/blob/canary/packages/next/src/build/templates/app-route.ts
+// Verified with next@16.2.7 build/start, repeated GET and HEAD requests. Compare
+// browser freshness directives: our isolated edge stages add private and consume
+// s-maxage, which do not shorten the browser's authored freshness lifetime.
+for (const policy of ["browser", "shared", "independent", "private", "no-store"]) {
+  test(`preserves Next.js browser cache policy: ${policy}`, async ({ baseURL, request }) => {
+    test.skip(!baseURL, "requires a running response-store-demo");
+    if (!baseURL) throw new Error("test requires a base URL");
+    function expectBrowserPolicy(headers: Record<string, string>, trace: string) {
+      const directives = (headers["cache-control"] ?? "").split(",").map((value) => value.trim());
+      if (policy === "no-store") {
+        expect(directives, trace).toContain("no-store");
+        expect(headers["x-vinext-cache"], trace).not.toBe("HIT");
+        expect(headers["cf-cache-status"], trace).not.toBe("HIT");
+      } else {
+        expect(directives, trace).toContain("max-age=10");
+        expect(directives, trace).not.toContain("no-store");
+        expect(directives, trace).not.toContain("no-cache");
+        expect(directives, trace).not.toContain("must-revalidate");
+        expect(
+          directives.filter((value) => value.startsWith("max-age=")),
+          trace,
+        ).toEqual(["max-age=10"]);
+        if (policy === "shared" || policy === "independent") {
+          expect(directives, trace).toContain("stale-while-revalidate=60");
+        }
+        if (policy === "private") expect(directives, trace).toContain("private");
+      }
+      if (backend !== "kv") {
+        expect(headers["cloudflare-cdn-cache-control"], trace).toBeUndefined();
+        expect(headers["cdn-cache-control"], trace).toBeUndefined();
+        expect(headers["x-vinext-cloudflare-shared-response-stage"], trace).toBeUndefined();
+      }
+    }
+    for (const method of ["GET", "HEAD"]) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const response = await request.fetch(`${baseURL}/api/browser-cache-policy/${policy}`, {
+          method,
+        });
+        const headers = response.headers();
+        const trace = JSON.stringify({ backend, policy, method, attempt, headers });
+        expect(response.status(), trace).toBe(200);
+        expectBrowserPolicy(headers, trace);
+        if (method === "GET") expect(await response.json()).toEqual({ policy });
+        await response.dispose();
+      }
+    }
+    if (
+      policy !== "no-store" &&
+      (backend === "response-store" ||
+        (backend === "workers-cache" && baseURL.startsWith("https://")))
+    ) {
+      let hitHeaders: Record<string, string> = {};
+      await expect
+        .poll(
+          async () => {
+            const response = await request.get(`${baseURL}/api/browser-cache-policy/${policy}`);
+            hitHeaders = response.headers();
+            const status =
+              hitHeaders[backend === "workers-cache" ? "cf-cache-status" : "x-vinext-cache"];
+            await response.dispose();
+            return status;
+          },
+          { timeout: 10_000 },
+        )
+        .toBe("HIT");
+      expectBrowserPolicy(hitHeaders, JSON.stringify({ backend, policy, hitHeaders }));
+    }
+  });
+}
+
+for (const policy of ["middleware", "config"]) {
+  test(`revalidates browser cache policy across ${policy} routing`, async ({
+    baseURL,
+    request,
+  }) => {
+    test.skip(!baseURL || backend === "kv", "requires a staged response-cache backend");
+    // The first request deliberately does not match the conditional config rule.
+    // It must revalidate too, so a later matching request reaches the gateway.
+    for (const visitor of ["anonymous", "config-a", "config-b"]) {
+      const response = await request.get(`${baseURL}/api/browser-cache-policy/${policy}`, {
+        headers: { "x-test-visitor-id": visitor, "x-test-config-visitor": visitor },
+      });
+      expect(response.status()).toBe(200);
+      expect(response.headers()["cache-control"]).toBe("private, max-age=0, must-revalidate");
+      const header =
+        policy === "middleware" ? "x-workers-cache-visitor" : "x-workers-config-visitor";
+      expect(response.headers()[header]).toBe(
+        policy === "config" && visitor === "anonymous" ? undefined : visitor,
+      );
+      expect(await response.json()).toEqual({ policy });
+      await response.dispose();
+    }
+  });
+}
+
 test("deployment pre-warming and force-dynamic bypass work with the configured cache", async ({
   baseURL,
   request,
