@@ -370,7 +370,7 @@ function publicResponse(
   response: Response,
   cacheStatus: string,
   responseStageProps: unknown,
-  shared = false,
+  admission: "bypass" | "completed" | "pending" = "bypass",
 ): Response {
   const headers = new Headers(response.headers);
   const publicCacheStatus =
@@ -399,7 +399,11 @@ function publicResponse(
     headers.set("X-Vinext-Cache", publicCacheStatus);
   }
   const cacheControl = headers.get("Cache-Control");
-  if (!shared && (!cacheControl || !isNonCacheableCacheControl(cacheControl))) {
+  if (
+    admission !== "completed" &&
+    (!cacheControl ||
+      !isNonCacheableCacheControl(cacheControl, admission === "pending" ? "browser" : "shared"))
+  ) {
     headers.set("Cache-Control", "private, max-age=0, must-revalidate");
   }
   return traceCachedResponseStart(
@@ -480,12 +484,12 @@ const handler = {
       const key = await cacheRequest(invocation);
       const stored = await readStoredResponse(key);
       if (stored) {
-        if (!rscKey) return publicResponse(stored, "HIT", props, true);
+        if (!rscKey) return publicResponse(stored, "HIT", props, "completed");
 
         const storedRsc = await readStoredResponse(rscKey);
         if (storedRsc) {
           void storedRsc.body?.cancel().catch(() => {});
-          return publicResponse(stored, "HIT", props, true);
+          return publicResponse(stored, "HIT", props, "completed");
         }
         void stored.body?.cancel().catch(() => {});
       }
@@ -528,11 +532,11 @@ const handler = {
         );
         // The foreground can precede admission. Retain browser revalidation
         // until the completed response has a proven policy.
-        return publicResponse(rendered, "MISS", props);
+        return publicResponse(rendered, "MISS", props, "pending");
       }
       if (!isCacheable(rendered)) {
         void capture?.rscData?.catch(() => {});
-        return publicResponse(rendered, "BYPASS", props, true);
+        return publicResponse(rendered, "BYPASS", props, "completed");
       }
       if (rscSeed && !capture?.rscData) {
         await rendered.body?.cancel();
@@ -583,7 +587,7 @@ const handler = {
           },
         );
       }
-      return publicResponse(new Response(foreground, rendered), "MISS", props, true);
+      return publicResponse(new Response(foreground, rendered), "MISS", props, "completed");
     };
 
     const { handleRequestStage } = await loadVinextRequestStage<

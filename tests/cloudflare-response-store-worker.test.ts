@@ -370,7 +370,9 @@ describe("Cloudflare Response Store Worker", () => {
     stages.request.mockImplementation((request, _env, _context, dispatchResponseStage) =>
       dispatchResponseStage(request, { toJSON }, { cache: "bypass" }),
     );
-    stages.response.mockResolvedValue(new Response("rendered"));
+    stages.response.mockResolvedValue(
+      new Response("rendered", { headers: { "Cache-Control": "private, max-age=10" } }),
+    );
     const store = {
       fetch: vi.fn(),
       getTagExpiration: vi.fn(),
@@ -387,6 +389,7 @@ describe("Cloudflare Response Store Worker", () => {
 
     expect(await response.text()).toBe("rendered");
     expect(response.headers.get("X-Vinext-Cache")).toBe("BYPASS");
+    expect(response.headers.get("Cache-Control")).toBe("private, max-age=10");
     expect(toJSON).toHaveBeenCalledOnce();
     expect(store.fetch).not.toHaveBeenCalled();
   });
@@ -594,6 +597,38 @@ describe("Cloudflare Response Store Worker query-free cache identity", () => {
     expect(regenerated.headers.has("X-Vinext-Params")).toBe(false);
     expect(regenerated.headers.has("X-Vinext-Rendered-Path-And-Search")).toBe(false);
   });
+
+  it.each(["private, max-age=10", "no-store", "no-cache"])(
+    "guards provisional browser policy before deferred admission: %s",
+    async (cacheControl) => {
+      dispatchWithIdentity(true, { kind: "app-page", isRscRequest: false });
+      stages.response.mockImplementation(async () => {
+        const response = new Response("provisional", {
+          headers: { "Cache-Control": cacheControl, "Cloudflare-CDN-Cache-Control": "max-age=60" },
+        });
+        return (
+          deferResponseStoreAdmission(response, async (admitted) => {
+            // Completion can discover a late dynamic API and reject admission.
+            await admitted.arrayBuffer();
+            return new Response(null, { headers: { "Cache-Control": "no-store" } });
+          }) ?? response
+        );
+      });
+      const { store } = createMemoryStore();
+      const ctx = context();
+      const response = await createVinextResponseStoreHandler(store).fetch(
+        new Request("https://example.com/provisional"),
+        {} as never,
+        ctx,
+      );
+      expect(response.headers.get("Cache-Control")).toBe(
+        cacheControl.startsWith("private") ? "private, max-age=0, must-revalidate" : cacheControl,
+      );
+      await response.text();
+      await Promise.all(ctx.waitUntil.mock.calls.map(([promise]) => promise));
+      expect(store.put).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     ["an App route handler", "stored", { isRscRequest: false, kind: "app-route-handler" }],
