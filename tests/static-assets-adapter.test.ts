@@ -116,19 +116,22 @@ describe("staticAssetsAdapter", () => {
 
   it.each(
     [false, true].flatMap((trailingSlash) =>
-      ["first", "café", "with space"].map((slug) => ({ trailingSlash, slug })),
+      ["first", "café", "with space"].flatMap((slug) =>
+        [undefined, "fr"].map((locale) => ({ trailingSlash, slug, locale })),
+      ),
     ),
   )(
-    "packages Pages HTML and the complete props envelope (trailingSlash: $trailingSlash, slug: $slug)",
-    async ({ trailingSlash, slug }) => {
+    "packages Pages HTML and the complete props envelope (trailingSlash: $trailingSlash, slug: $slug, locale: $locale)",
+    async ({ trailingSlash, slug, locale }) => {
       const root = createRoot();
       const pathname = `/posts/${encodeURIComponent(slug)}`;
+      const artifactPathname = `${locale ? `/${locale}` : ""}${pathname}`;
       const props = {
         pageProps: { slug, text: "</script>" },
         appValue: "preserved",
         __N_SSG: true,
       };
-      const nextData = JSON.stringify({ props, gsp: true }).replaceAll("<", "\\u003c");
+      const nextData = JSON.stringify({ props, gsp: true, locale }).replaceAll("<", "\\u003c");
       const html = `<html><script id="__NEXT_DATA__" type="application/json">${nextData}</script></html>`;
       write(
         root,
@@ -139,7 +142,7 @@ describe("staticAssetsAdapter", () => {
           routes: [
             {
               route: "/posts/:slug",
-              path: pathname,
+              path: artifactPathname,
               status: "rendered",
               revalidate: 1,
               router: "pages",
@@ -149,7 +152,7 @@ describe("staticAssetsAdapter", () => {
       );
       write(
         root,
-        `dist/server/prerendered-routes${pathname}${trailingSlash ? "/index" : ""}.html`,
+        `dist/server/prerendered-routes${artifactPathname}${trailingSlash ? "/index" : ""}.html`,
         html,
       );
       const descriptor = staticAssetsAdapter();
@@ -166,7 +169,11 @@ describe("staticAssetsAdapter", () => {
           },
         },
       });
-      const key = isrCacheKey("pages", pathname, "build-a");
+      const key = isrCacheKey(
+        "pages",
+        pathname + (locale ? "::i18n=" + encodeURIComponent(`locale:${locale}`) : ""),
+        "build-a",
+      );
       const cached = await adapter.get(key);
       expect(cached).toMatchObject({
         cacheControl: { revalidate: 1 },
@@ -179,6 +186,77 @@ describe("staticAssetsAdapter", () => {
       expect(await adapter.get(isrCacheKey("pages", "/posts/missing", "build-a"))).toBeNull();
     },
   );
+
+  it.each([
+    {
+      name: "redirect",
+      metadata: {
+        responseStatus: 307,
+        headers: { location: "/base/destination" },
+        redirectProps: {
+          pageProps: { __N_REDIRECT: "/destination", __N_REDIRECT_STATUS: 307 },
+          __N_SSG: true,
+          appValue: "preserved",
+        },
+      },
+      expected: {
+        kind: "REDIRECT",
+        props: {
+          pageProps: {
+            __N_REDIRECT: "/destination",
+            __N_REDIRECT_STATUS: 307,
+          },
+          __N_SSG: true,
+          appValue: "preserved",
+        },
+      },
+    },
+    { name: "notFound", metadata: { notFound: true, responseStatus: 404 }, expected: null },
+  ])("packages immutable localized Pages $name results", async ({ metadata, expected }) => {
+    const root = createRoot();
+    write(
+      root,
+      "dist/server/vinext-prerender.json",
+      JSON.stringify({
+        buildId: "build-a",
+        routes: [
+          {
+            route: "/terminal",
+            path: "/fr/terminal",
+            locale: "fr",
+            status: "rendered",
+            router: "pages",
+            revalidate: false,
+            ...metadata,
+          },
+        ],
+      }),
+    );
+    write(root, "dist/server/prerendered-routes/fr/terminal.html", "<html>terminal result</html>");
+    await finalizeCacheAdapterPrerenderOutput({ cdn: staticAssetsAdapter() }, root);
+    const adapter = createStaticAssetsCacheAdapter({
+      env: {
+        ASSETS: {
+          async fetch(input: string) {
+            const file = path.join(root, "dist/client", new URL(input).pathname);
+            return fs.existsSync(file)
+              ? new Response(fs.readFileSync(file))
+              : new Response(null, { status: 404 });
+          },
+        },
+      },
+    });
+    const key = isrCacheKey(
+      "pages",
+      "/terminal::i18n=" + encodeURIComponent("locale:fr"),
+      "build-a",
+    );
+    const cached = await adapter.get(key);
+    expect(cached).not.toBeNull();
+    expect(cached?.value).toEqual(expected);
+    await adapter.set(key, null);
+    expect(await adapter.get(key)).toEqual(cached);
+  });
 
   it("fails clearly when the configured Assets binding is missing", () => {
     expect(() => createStaticAssetsCacheAdapter({ env: {} })).toThrow(/`ASSETS`/);

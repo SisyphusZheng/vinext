@@ -279,7 +279,7 @@ Each cached page or data entry in KV expires after the adapter's `ttlSeconds` (3
 
 ## Static Assets response cache
 
-For immutable routes, `staticAssetsAdapter()` packages locally prerendered responses from both routers into the configured client assets output. It stores App Router HTML, RSC payloads, and metadata responses, plus Pages Router HTML and the props used by `/_next/data/...` navigation requests. The Worker reads those artifacts through its `ASSETS` binding:
+For immutable routes, `staticAssetsAdapter()` packages locally prerendered responses from both routers into the configured client assets output. It stores App Router HTML, RSC payloads, and metadata responses, plus Pages Router HTML, the props used by `/_next/data/...` navigation requests, and build-time redirect and not-found results. The Worker reads those artifacts through its `ASSETS` binding:
 
 ```ts
 import { staticAssetsAdapter } from "@vinext/cloudflare/cache/static-assets-adapter";
@@ -298,7 +298,7 @@ This is deliberately read-only. Cache writes, `revalidatePath()`, `revalidateTag
 
 Finite `revalidate` intervals do not refresh packaged responses either. Use a writable response cache if those routes need runtime ISR; Static Assets always serves the build-time snapshot until the next deployment.
 
-Pages Router i18n domain routing currently renders at runtime. The prerenderer does not produce separate snapshots for each domain, and those domains can change `defaultLocale`, page props, and generated links even for the same locale. Static Assets keeps those cache identities separate rather than reusing the locale-only snapshot. Use a runtime cache adapter for those domain routes.
+Pages Router locale-prefixed routes use their own prerendered snapshots. i18n domain routing currently renders at runtime. The prerenderer does not produce separate snapshots for each domain, and those domains can change `defaultLocale`, page props, and generated links even for the same locale. Static Assets keeps those cache identities separate rather than reusing the locale-only snapshot. Use a runtime cache adapter for those domain routes.
 
 The private cache directory must be routed through the Worker so clients cannot fetch raw cache files directly. `vinext init --platform=cloudflare --cdn-cache=static-assets` configures this automatically. For manual setup, add the following to your existing Worker in `cloudflare.config.ts`:
 

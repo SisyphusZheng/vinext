@@ -174,3 +174,71 @@ test("i18n domains render their own context instead of a locale-only snapshot", 
     expect(html).toContain(`id="default-locale">${defaultLocale}</p>`);
   }
 });
+
+// Next.js caches terminal GSP results, including redirect props and null notFound entries.
+// https://github.com/vercel/next.js/blob/canary/test/e2e/prerender.test.ts
+test("build-time redirects stay immutable for HTML and data", async ({ request }) => {
+  const buildId = fs.readFileSync(path.join(fixture, "dist/server/BUILD_ID"), "utf8").trim();
+  const redirect = await request.get("/redirect", { maxRedirects: 0 });
+  expect(redirect.status()).toBe(307);
+  expect(redirect.headers()["location"]).toBe("/posts/first?from=build");
+  expect(redirect.headers()["x-vinext-cache"]).toBe("HIT");
+  const data = await request.get(`/_next/data/${buildId}/redirect.json`);
+  expectHit(data);
+  expect(await data.json()).toMatchObject({
+    pageProps: {
+      __N_REDIRECT: "/posts/first?from=build",
+      __N_REDIRECT_STATUS: 307,
+    },
+  });
+});
+
+test("build-time notFound results stay immutable for HTML and data", async ({ request }) => {
+  const buildId = fs.readFileSync(path.join(fixture, "dist/server/BUILD_ID"), "utf8").trim();
+  const removed = await request.get("/removed");
+  expect(removed.status()).toBe(404);
+  expect(removed.headers()["x-vinext-cache"]).toBe("HIT");
+  expect(await removed.text()).toContain("Static Assets page not found");
+  const removedData = await request.get(`/_next/data/${buildId}/removed.json`);
+  expect(removedData.status()).toBe(404);
+  expect(removedData.headers()["x-vinext-cache"]).toBe("HIT");
+  expect(await removedData.json()).toEqual({ notFound: true });
+});
+
+test("locale-prefixed static pages and getStaticPaths variants use their build snapshots", async ({
+  request,
+}) => {
+  const errorFixture = path.resolve("tests/e2e/cloudflare-static-assets-pages/error-fixture");
+  const buildId = fs.readFileSync(path.join(errorFixture, "dist/server/BUILD_ID"), "utf8").trim();
+  for (const pathname of ["/fr", "/fr/posts/first", "/fr/posts/string", "/fr/posts/french-only"]) {
+    const response = await request.get(`http://localhost:4217${pathname}`);
+    expectHit(response);
+    expect(await response.text()).toContain('id="locale">fr</p>');
+  }
+  const data = await request.get(`http://localhost:4217/_next/data/${buildId}/fr/posts/first.json`);
+  expectHit(data);
+  expect(await data.json()).toMatchObject({ pageProps: { locale: "fr", source: "build-time" } });
+  const unlistedLocale = await request.get("http://localhost:4217/posts/french-only");
+  expect(unlistedLocale.status()).toBe(404);
+  const missing = await request.get("http://localhost:4217/fr/missing");
+  expect(missing.status()).toBe(404);
+  expect(missing.headers()["x-vinext-cache"]).toBe("HIT");
+  expect(await missing.text()).toContain('id="render-source">build-time</p>');
+});
+
+test("cached internal redirects preserve client navigation", async ({ page }) => {
+  await page.goto("/");
+  await page.waitForFunction(() => {
+    const router = window.next?.router;
+    return router && "isReady" in router && router.isReady;
+  });
+  await page.evaluate(() => Reflect.set(window, "__redirectNoReload", true));
+  await page.evaluate(async () => {
+    const router = window.next?.router;
+    if (!router || !("push" in router)) throw new Error("Pages router is not ready");
+    await router.push("/redirect");
+  });
+  await expect(page).toHaveURL(/\/posts\/first\?from=build$/);
+  await expect(page.locator("#render-source")).toHaveText("build-time");
+  expect(await page.evaluate(() => Reflect.get(window, "__redirectNoReload"))).toBe(true);
+});

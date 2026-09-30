@@ -95,6 +95,143 @@ describe("automatically static Pages prerender cache", () => {
   });
 });
 
+describe("dynamic Pages prerender cache", () => {
+  const values: Array<[string, IncrementalCacheValue | null]> = [
+    [
+      "page",
+      {
+        kind: "PAGES",
+        html: "prebuilt",
+        pageData: { pageProps: { slug: "post" } },
+        headers: undefined,
+        status: 200,
+      },
+    ],
+    [
+      "redirect",
+      {
+        kind: "REDIRECT",
+        props: { pageProps: { __N_REDIRECT: "/target", __N_REDIRECT_STATUS: 307 }, __N_SSG: true },
+      },
+    ],
+    ["notFound", null],
+  ];
+
+  it.each(
+    [false, true].flatMap((isDataReq) =>
+      values.map(([name, value]) => ({ isDataReq, name, value })),
+    ),
+  )(
+    "serves packaged $name without rerunning getStaticPaths (data: $isDataReq)",
+    async ({ isDataReq, value }) => {
+      // Next.js checks its built prerender manifest before fallback exclusion.
+      // https://github.com/vercel/next.js/blob/canary/packages/next/src/server/route-modules/pages/pages-handler.ts
+      const getStaticPaths = vi.fn(() => {
+        throw new Error("getStaticPaths is build-only");
+      });
+      const getStaticProps = vi.fn(async () => ({ props: {} }));
+      const options = createOptions({
+        isDataReq,
+        hasPrerenderedPages: true,
+        route: { isDynamic: true },
+        pageModule: { getStaticPaths, getStaticProps },
+        isrGet: vi.fn<ResolvePagesPageDataOptions["isrGet"]>(async () => ({
+          isStale: false,
+          value: { lastModified: 0, cacheControl: { revalidate: false }, value },
+        })),
+      });
+      const result = await resolvePagesPageData(options);
+      expect(getStaticPaths).not.toHaveBeenCalled();
+      expect(getStaticProps).not.toHaveBeenCalled();
+      expect(options.isrGet).toHaveBeenCalledExactlyOnceWith("pages:/posts/post");
+      if (!isDataReq && value === null) {
+        expect(result).toMatchObject({ kind: "notFound", cacheState: "HIT" });
+      } else {
+        expect(result.kind).toBe("response");
+        if (result.kind !== "response") throw new Error("expected cached response");
+        expect(result.response.headers.get("x-vinext-cache")).toBe("HIT");
+        expect(result.response.status).toBe(
+          value === null ? 404 : !isDataReq && value.kind === "REDIRECT" ? 307 : 200,
+        );
+        if (!isDataReq && value?.kind === "PAGES")
+          expect(await result.response.text()).toBe("prebuilt");
+        if (!isDataReq && value?.kind === "REDIRECT")
+          expect(result.response.headers.get("location")).toBe("/target");
+      }
+    },
+  );
+
+  it.each(["adapter", "preview", "nonce", "on-demand", "missing", "stale", "expired"])(
+    "still resolves runtime static paths for a %s bypass or unusable entry",
+    async (reason) => {
+      const getStaticPaths = vi.fn(async () => ({ paths: [], fallback: false }));
+      const options = createOptions({
+        hasPrerenderedPages: reason !== "adapter",
+        previewData: reason === "preview" ? {} : false,
+        scriptNonce: reason === "nonce" ? "nonce" : undefined,
+        isOnDemandRevalidate: reason === "on-demand",
+        route: { isDynamic: true },
+        pageModule: { getStaticPaths, getStaticProps: async () => ({ props: {} }) },
+        isrGet: vi.fn<ResolvePagesPageDataOptions["isrGet"]>(async () =>
+          reason === "missing"
+            ? null
+            : {
+                isStale: reason === "stale",
+                isExpired: reason === "expired",
+                value: {
+                  lastModified: 0,
+                  cacheControl: { revalidate: false },
+                  value: values[0][1],
+                },
+              },
+        ),
+      });
+      await resolvePagesPageData(options);
+      expect(getStaticPaths).toHaveBeenCalledOnce();
+      if (["adapter", "nonce", "on-demand"].includes(reason))
+        expect(options.isrGet).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe("Pages redirect prerender envelope", () => {
+  it.each([undefined, true, false])(
+    "preserves redirect props and basePath=%s at build time",
+    async (basePath) => {
+      const options = createOptions({
+        isBuildTimePrerendering: true,
+        basePath: "/base",
+        AppComponent: Object.assign(() => null, {
+          getInitialProps: () => ({ pageProps: {}, appValue: "preserved" }),
+        }),
+        pageModule: {
+          getStaticProps: () => ({
+            redirect: {
+              destination: "/target",
+              permanent: false,
+              ...(basePath === undefined ? {} : { basePath }),
+            },
+          }),
+        },
+      });
+      const result = await resolvePagesPageData(options);
+      if (result.kind !== "response") throw new Error("expected redirect");
+      expect(result.response.status).toBe(307);
+      expect(result.response.headers.get("location")).toBe(
+        basePath === false ? "/target" : "/base/target",
+      );
+      expect(await result.response.json()).toEqual({
+        appValue: "preserved",
+        pageProps: {
+          __N_REDIRECT: "/target",
+          __N_REDIRECT_STATUS: 307,
+          ...(basePath === undefined ? {} : { __N_REDIRECT_BASE_PATH: basePath }),
+        },
+      });
+    },
+  );
+});
+
 function createOptions(
   overrides: Partial<ResolvePagesPageDataOptions> = {},
 ): ResolvePagesPageDataOptions {
@@ -480,6 +617,49 @@ describe("pages page data", () => {
 
     expect(result).toEqual({ kind: "notFound" });
   });
+
+  it.each([
+    { entry: "/fr/posts/post", locale: "fr", allowed: true },
+    { entry: "/fr/posts/post", locale: "en", allowed: false },
+    { entry: "/posts/post", locale: "en", allowed: true },
+    { entry: "/posts/post", locale: "fr", allowed: false },
+    { entry: { params: { slug: "post" }, locale: "fr" }, locale: "fr", allowed: true },
+    { entry: { params: { slug: "post" }, locale: "fr" }, locale: "en", allowed: false },
+    { entry: { params: { slug: "post" } }, locale: "en", allowed: true },
+    { entry: { params: { slug: "post" } }, locale: "fr", allowed: false },
+  ])(
+    "matches getStaticPaths entries only in their locale: $entry, $locale",
+    async ({ entry, locale, allowed }) => {
+      // Next.js: test/e2e/i18n-fallback-collision/i18n-fallback-collision.test.ts
+      // https://github.com/vercel/next.js/blob/canary/packages/next/src/build/static-paths/pages.ts
+      const getStaticPaths = vi.fn(async () => ({ paths: [entry], fallback: false }));
+      const getStaticProps = vi.fn(async () => ({ props: { locale } }));
+      const result = await resolvePagesPageData(
+        createOptions({
+          isDataReq: true,
+          route: { isDynamic: true },
+          staticPathsDefaultLocale: "en",
+          // A domain may change the render default; omitted path locales still
+          // belong to the build's global defaultLocale.
+          i18n: { locale, locales: ["en", "fr"], defaultLocale: "fr" },
+          pageModule: { getStaticPaths, getStaticProps },
+        }),
+      );
+      if (allowed) {
+        expect(result).toMatchObject({ kind: "render", pageProps: { locale } });
+        expect(getStaticProps).toHaveBeenCalledWith(
+          expect.objectContaining({ locale, defaultLocale: "fr" }),
+        );
+      } else {
+        expect(result.kind).toBe("response");
+        if (result.kind !== "response") throw new Error("expected data response");
+        expect(result.response.status).toBe(404);
+        expect(await result.response.json()).toEqual({ notFound: true });
+        expect(getStaticProps).not.toHaveBeenCalled();
+      }
+      expect(getStaticPaths).toHaveBeenCalledWith({ locales: ["en", "fr"], defaultLocale: "en" });
+    },
+  );
 
   // Ported from Next.js: test/e2e/prerender.test.ts
   // https://github.com/vercel/next.js/blob/v16.2.6/test/e2e/prerender.test.ts

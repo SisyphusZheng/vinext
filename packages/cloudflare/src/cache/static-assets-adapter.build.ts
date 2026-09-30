@@ -23,6 +23,19 @@ function cacheAssetId(key: string): string {
   return createHash("sha256").update(key).digest("hex");
 }
 
+function pagesCacheKey(pathname: string, locale: string | undefined, buildId: string): string {
+  // Pages requests retain URL escapes, but strip the locale prefix before ISR.
+  let pagesPathname = new URL(`https://vinext.invalid${pathname}`).pathname;
+  if (locale) {
+    const prefix = `/${locale}`;
+    if (pagesPathname === prefix) pagesPathname = "/";
+    else if (pagesPathname.startsWith(`${prefix}/`))
+      pagesPathname = pagesPathname.slice(prefix.length);
+    pagesPathname += `::i18n=${encodeURIComponent(`locale:${locale}`)}`;
+  }
+  return isrCacheKey("pages", pagesPathname, buildId);
+}
+
 function cacheControl(route: PrerenderManifestRoute) {
   if (route.revalidate === undefined) return undefined;
   return {
@@ -116,8 +129,30 @@ export function finalizeStaticAssetsPrerenderOutput(
       );
       if (!fs.existsSync(sourcePath)) continue;
       const html = fs.readFileSync(sourcePath, "utf8");
+      const key = pagesCacheKey(pathname, route.locale, manifest.buildId);
+      if (route.notFound) {
+        count += Number(
+          writeCacheAsset(outputDir, index, key, "not-found", sourcePath, route, "null"),
+        );
+        continue;
+      }
+      if (route.redirectProps) {
+        count += Number(
+          writeCacheAsset(
+            outputDir,
+            index,
+            key,
+            "redirect",
+            sourcePath,
+            route,
+            JSON.stringify(route.redirectProps),
+          ),
+        );
+        continue;
+      }
       const json = extractVinextNextDataJson(html);
-      // Redirect export shells have no page data and must keep rendering normally.
+      // Only GSP terminal results receive manifest metadata above. Redirects
+      // produced before page rendering must keep running at request time.
       if (json === null) continue;
       const nextData = JSON.parse(json) as {
         props?: object;
@@ -131,17 +166,11 @@ export function finalizeStaticAssetsPrerenderOutput(
       if (!nextData.props || typeof nextData.props !== "object") {
         throw new Error(`[vinext] Missing prerendered Pages props for ${pathname}`);
       }
-      // Pages cache keys use URL.pathname, retaining escaped dynamic params.
-      // App prerender keys above deliberately use their decoded normalization.
-      const pagesPathname = new URL(`https://vinext.invalid${pathname}`).pathname;
-      const keyPathname = nextData.locale
-        ? `${pagesPathname}::i18n=${encodeURIComponent(`locale:${nextData.locale}`)}`
-        : pagesPathname;
       count += Number(
         writeCacheAsset(
           outputDir,
           index,
-          isrCacheKey("pages", keyPathname, manifest.buildId),
+          pagesCacheKey(pathname, nextData.locale ?? route.locale, manifest.buildId),
           "pages",
           sourcePath,
           {

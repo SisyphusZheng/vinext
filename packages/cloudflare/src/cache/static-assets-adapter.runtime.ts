@@ -2,6 +2,7 @@ import type {
   CacheHandlerValue,
   CachedAppPageValue,
   CachedPagesValue,
+  CachedRedirectValue,
   CachedRouteValue,
   IncrementalCacheValue,
 } from "vinext/shims/cache-handler";
@@ -35,7 +36,9 @@ function isMetadata(value: unknown): value is StaticAssetCacheMetadata {
     (value.kind === "html" ||
       value.kind === "rsc" ||
       value.kind === "route" ||
-      value.kind === "pages") &&
+      value.kind === "pages" ||
+      value.kind === "redirect" ||
+      value.kind === "not-found") &&
     "lastModified" in value &&
     typeof value.lastModified === "number"
   );
@@ -68,8 +71,17 @@ export class StaticAssetsCacheAdapter implements CdnCacheAdapter {
     );
     if (!bodyResponse.ok) return null;
 
-    let value: CachedAppPageValue | CachedRouteValue | CachedPagesValue;
-    if (metadata.kind === "pages") {
+    let value:
+      | CachedAppPageValue
+      | CachedRouteValue
+      | CachedPagesValue
+      | CachedRedirectValue
+      | null;
+    if (metadata.kind === "not-found") {
+      value = null;
+    } else if (metadata.kind === "redirect") {
+      value = { kind: "REDIRECT", props: (await bodyResponse.json()) as object };
+    } else if (metadata.kind === "pages") {
       const { html, pageData } = (await bodyResponse.json()) as Pick<
         CachedPagesValue,
         "html" | "pageData"

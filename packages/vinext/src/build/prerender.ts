@@ -37,9 +37,12 @@ import { _consumeRequestScopedCacheLife } from "vinext/shims/cache-request-state
 import { runWithHeadersContext, headersContextFromRequest } from "vinext/shims/headers";
 import { createValidFileMatcher, findFileWithExtensions } from "../routing/file-matcher.js";
 import { normalizeStaticPathsEntry, type StaticPathsEntry } from "../routing/route-pattern.js";
+import { extractLocaleFromUrl } from "../server/pages-i18n.js";
+import { isUnknownRecord } from "../utils/record.js";
 import { navigationRuntimeRscBootstrapExpression } from "../server/app-ssr-stream.js";
 import {
   NEXT_CACHE_TAGS_HEADER,
+  VINEXT_CACHE_HEADER,
   VINEXT_METADATA_ROUTE_CACHE_HEADER,
   VINEXT_PRERENDER_CACHE_LIFE_HEADER,
   VINEXT_PRERENDER_METADATA_ROUTES_PATH,
@@ -176,8 +179,14 @@ export type PrerenderRouteResult =
       router: "app" | "pages" | "metadata";
       /** Response headers that must be replayed with the prerendered artifact. */
       headers?: Record<string, string | string[]>;
-      /** Original HTTP status for prerendered App Route-style responses. */
+      /** Original HTTP status for prerendered route responses. */
       responseStatus?: number;
+      /** Pages source returned notFound, distinct from the custom 404 document. */
+      notFound?: true;
+      /** Original Pages redirect props, including client navigation semantics. */
+      redirectProps?: object;
+      /** Pages locale rendered for this public pathname. */
+      locale?: string;
       /** Cache tags collected while rendering this route. */
       tags?: string[];
       /** Raw app-tree segments used to derive App Route implicit tags. */
@@ -765,6 +774,15 @@ export function layoutOnlyParamSets(
 
 // ─── Pages Router Prerender ───────────────────────────────────────────────────
 
+export function localizePagesPath(
+  pathname: string,
+  locale: string | undefined,
+  i18n: ResolvedNextConfig["i18n"],
+): string {
+  if (!i18n || !locale || locale === i18n.defaultLocale) return pathname;
+  return pathname === "/" ? `/${locale}` : `/${locale}${pathname}`;
+}
+
 /**
  * Run the prerender phase for Pages Router.
  *
@@ -953,6 +971,8 @@ export async function prerenderPages({
       urlPath: string;
       params: Record<string, string | string[]>;
       revalidate: number | false;
+      hasStaticProps: boolean;
+      locale?: string;
     };
     const pagesToRender: PageToRender[] = [];
 
@@ -964,7 +984,11 @@ export async function prerenderPages({
       // that non-2xx response as a prerender failure.
       if (route.pattern === "/404") continue;
 
-      const { type, revalidate: classifiedRevalidate } = classifyPagesRoute(route.filePath);
+      const {
+        type,
+        revalidate: classifiedRevalidate,
+        hasStaticProps = false,
+      } = classifyPagesRoute(route.filePath);
 
       // Route type detection uses static file analysis (classifyPagesRoute).
       // Rendering is always done via HTTP through a local prod server, so we
@@ -1010,7 +1034,10 @@ export async function prerenderPages({
         // the whole prerender, matching Next.js. Refs cloudflare/vinext#1982
         let pathsResult: { paths?: Array<StaticPathsEntry>; fallback?: unknown } | undefined;
         try {
-          pathsResult = await route.module.getStaticPaths({ locales: [], defaultLocale: "" });
+          pathsResult = await route.module.getStaticPaths({
+            locales: [...(config.i18n?.locales ?? [])],
+            defaultLocale: config.i18n?.defaultLocale ?? "",
+          });
         } catch (e) {
           results.push({
             route: route.pattern,
@@ -1039,16 +1066,37 @@ export async function prerenderPages({
         // the whole prerender.
         const paths: Array<StaticPathsEntry> = pathsResult?.paths ?? [];
         let entryError: string | null = null;
+        const seenPaths = new Set<string>();
         for (const item of paths) {
-          const normalized = normalizeStaticPathsEntry(item, route.pattern);
+          let locale = config.i18n?.defaultLocale;
+          let pathEntry = item;
+          if (config.i18n && typeof item === "string") {
+            const localized = extractLocaleFromUrl(item, config.i18n);
+            locale = localized.locale;
+            pathEntry = localized.url;
+          } else if (item && typeof item === "object" && item.locale !== undefined) {
+            locale = item.locale;
+          }
+          const normalized = normalizeStaticPathsEntry(pathEntry, route.pattern);
           if ("error" in normalized) {
             entryError = normalized.error;
             break;
           }
+          if (locale !== undefined && !config.i18n?.locales.includes(locale)) {
+            entryError = `Invalid locale returned from getStaticPaths for ${route.pattern}: ${locale}`;
+            break;
+          }
           const { params } = normalized;
           try {
-            const urlPath = buildUrlFromParams(route.pattern, params);
-            pagesToRender.push({ route, urlPath, params, revalidate });
+            const urlPath = localizePagesPath(
+              buildUrlFromParams(route.pattern, params),
+              locale,
+              config.i18n,
+            );
+            if (!seenPaths.has(urlPath)) {
+              seenPaths.add(urlPath);
+              pagesToRender.push({ route, urlPath, params, revalidate, hasStaticProps, locale });
+            }
           } catch (e) {
             entryError = (e as Error).message;
             break;
@@ -1059,7 +1107,16 @@ export async function prerenderPages({
           continue;
         }
       } else {
-        pagesToRender.push({ route, urlPath: route.pattern, params: {}, revalidate });
+        for (const locale of config.i18n?.locales ?? [undefined]) {
+          pagesToRender.push({
+            route,
+            urlPath: localizePagesPath(route.pattern, locale, config.i18n),
+            params: {},
+            revalidate,
+            hasStaticProps,
+            locale,
+          });
+        }
       }
     }
 
@@ -1087,10 +1144,34 @@ export async function prerenderPages({
     const pageResults = await runWithConcurrency(
       pagesToRender,
       concurrency,
-      async ({ route, urlPath, revalidate }) => {
+      async ({ route, urlPath, revalidate, hasStaticProps, locale }) => {
         let result: PrerenderRouteResult;
         try {
           const response = await renderPage(urlPath);
+          // getStaticProps terminal responses carry the framework's MISS marker.
+          // A middleware/config/_app early response must not become a snapshot.
+          const isStaticPropsResponse =
+            mode === "default" &&
+            hasStaticProps &&
+            response.headers.get(VINEXT_CACHE_HEADER) === "MISS";
+          const notFound = isStaticPropsResponse && response.status === 404;
+          const redirect =
+            isStaticPropsResponse && [301, 302, 303, 307, 308].includes(response.status);
+          let redirectProps: object | undefined;
+          if (redirect) {
+            const props: unknown = await response.json();
+            if (
+              !isUnknownRecord(props) ||
+              !isUnknownRecord(props.pageProps) ||
+              typeof props.pageProps.__N_REDIRECT !== "string" ||
+              props.pageProps.__N_REDIRECT_STATUS !== response.status ||
+              (props.pageProps.__N_REDIRECT_BASE_PATH !== undefined &&
+                typeof props.pageProps.__N_REDIRECT_BASE_PATH !== "boolean")
+            ) {
+              throw new Error(`Invalid prerendered Pages redirect props for ${urlPath}`);
+            }
+            redirectProps = props;
+          }
           const outputFiles: string[] = [];
           const htmlOutputPath = getOutputPath(
             urlPath,
@@ -1113,7 +1194,7 @@ export async function prerenderPages({
             fs.writeFileSync(htmlFullPath, html, "utf-8");
             outputFiles.push(htmlOutputPath);
           } else {
-            if (!response.ok) {
+            if (!response.ok && !notFound) {
               throw new Error(`renderPage returned ${response.status} for ${urlPath}`);
             }
             const html = await response.text();
@@ -1132,6 +1213,15 @@ export async function prerenderPages({
             ...(typeof revalidate === "number" ? { expire: config.expireTime } : {}),
             router: "pages",
             ...(urlPath !== route.pattern ? { path: urlPath } : {}),
+            ...(locale ? { locale } : {}),
+            ...(notFound ? { notFound: true, responseStatus: 404 } : {}),
+            ...(redirect
+              ? {
+                  responseStatus: response.status,
+                  redirectProps,
+                  headers: { location: response.headers.get("location") ?? "/" },
+                }
+              : {}),
           };
         } catch (e) {
           renderPool?.recordRenderError(e);
@@ -1161,18 +1251,34 @@ export async function prerenderPages({
     // ── Render 404 page ───────────────────────────────────────────────────
     const hasCustom404 = findFileWithExtensions(path.join(pagesDir, "404"), fileMatcher);
     const hasErrorPage = findFileWithExtensions(path.join(pagesDir, "_error"), fileMatcher);
-    if (hasCustom404 || hasErrorPage) {
+    for (const locale of config.i18n?.locales ?? [undefined]) {
+      if (!hasCustom404 && !hasErrorPage) break;
       try {
-        const notFoundRes = await renderPage(hasCustom404 ? "/404" : NOT_FOUND_SENTINEL_PATH);
+        const notFoundRes = await renderPage(
+          localizePagesPath(hasCustom404 ? "/404" : NOT_FOUND_SENTINEL_PATH, locale, config.i18n),
+        );
         const contentType = notFoundRes.headers.get("content-type") ?? "";
         if (notFoundRes.status === 404 && contentType.includes("text/html")) {
           const html404 = await notFoundRes.text();
+          const pathname = localizePagesPath("/404", locale, config.i18n);
+          let outputFiles: string[];
+          if (pathname === "/404") {
+            outputFiles = emitStatic404Files(outDir, html404, config.trailingSlash);
+          } else {
+            const outputPath = getOutputPath(pathname, config.trailingSlash);
+            const fullPath = path.join(outDir, outputPath);
+            fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+            fs.writeFileSync(fullPath, html404, "utf8");
+            outputFiles = [outputPath];
+          }
           results.push({
             route: "/404",
             status: "rendered",
-            outputFiles: emitStatic404Files(outDir, html404, config.trailingSlash),
+            outputFiles,
             revalidate: false,
             router: "pages",
+            ...(pathname !== "/404" ? { path: pathname } : {}),
+            ...(locale ? { locale } : {}),
           });
         }
       } catch (e) {
@@ -2209,6 +2315,9 @@ export function writePrerenderIndex(
         ...(r.routeSegments ? { routeSegments: r.routeSegments } : {}),
         ...(r.headers ? { headers: r.headers } : {}),
         ...(typeof r.responseStatus === "number" ? { responseStatus: r.responseStatus } : {}),
+        ...(r.notFound ? { notFound: true as const } : {}),
+        ...(r.redirectProps ? { redirectProps: r.redirectProps } : {}),
+        ...(r.locale ? { locale: r.locale } : {}),
         ...(r.path ? { path: r.path } : {}),
         ...(r.fallback ? { fallback: true } : {}),
       };

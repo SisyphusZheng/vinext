@@ -30,6 +30,7 @@ import {
 } from "../packages/vinext/src/server/isr-cache.js";
 import { after } from "../packages/vinext/src/shims/server.js";
 import { VINEXT_REVALIDATED_CACHE_TAG_HEADER } from "../packages/vinext/src/server/headers.js";
+import { generatePagesETag } from "../packages/vinext/src/server/pages-page-response.js";
 
 afterEach(() => setCdnCacheAdapter(new DefaultCdnCacheAdapter()));
 
@@ -868,6 +869,98 @@ describe("createPagesPageHandler — preview responses", () => {
         "notice=missing; Path=/",
       ]);
       expect(response.headers.get("transfer-encoding")).toBeNull();
+    },
+  );
+
+  it.each([
+    { gsp: false, stale: false },
+    { gsp: true, stale: false },
+    { gsp: true, stale: true },
+  ])(
+    "keeps cached notFound ETags consistent after source headers (GSP: $gsp, stale: $stale)",
+    async ({ gsp, stale }) => {
+      // Next.js overwrites the source ETag with the rendered payload's validator
+      // before testing freshness, while retaining the existing response headers.
+      // https://github.com/vercel/next.js/blob/canary/packages/next/src/server/send-payload.ts
+      // Bot ETag coverage: test/e2e/streaming-ssr-edge/streaming-ssr-edge.test.ts
+      const html = "prebuilt 404";
+      const etag = generatePagesETag(html);
+      const sourceEtag = '"source-page"';
+      const adapter = Object.assign(new DefaultCdnCacheAdapter(), {
+        hasPrerenderedPages: true,
+        ownsBackgroundRevalidation: false,
+      });
+      vi.spyOn(adapter, "get").mockResolvedValue({
+        lastModified: 0,
+        cacheState: stale ? "stale" : "fresh",
+        cacheControl: { revalidate: false },
+        value: {
+          kind: "PAGES",
+          html,
+          pageData: {},
+          status: 404,
+          headers: undefined,
+        },
+      });
+      setCdnCacheAdapter(adapter);
+      const handler = createPagesPageHandler(
+        makeOpts({
+          pageRoutes: [
+            makeRoute(
+              "/missing",
+              makePageModule({
+                getServerSideProps: ({
+                  res,
+                }: {
+                  res: { setHeader(name: string, value: string): void };
+                }) => {
+                  res.setHeader("ETag", sourceEtag);
+                  res.setHeader("Cache-Control", "private, no-store");
+                  res.setHeader("Set-Cookie", "session=expired; Path=/");
+                  res.setHeader("X-Source", "missing");
+                  return { notFound: true };
+                },
+              }),
+            ),
+            makeRoute("/404", makePageModule(gsp ? { getStaticProps: () => ({ props: {} }) } : {})),
+          ],
+        }),
+      );
+      for (const [ifNoneMatch, requestCacheControl, status] of [
+        [undefined, undefined, 404],
+        [sourceEtag, undefined, 404],
+        [etag, undefined, 304],
+        [etag, "no-cache", 404],
+      ] as const) {
+        const headers = new Headers({ "User-Agent": "Googlebot" });
+        if (ifNoneMatch) headers.set("If-None-Match", ifNoneMatch);
+        if (requestCacheControl) headers.set("Cache-Control", requestCacheControl);
+        const response = await handler(
+          new Request("http://localhost/missing", { headers }),
+          "/missing",
+          null,
+          null,
+          null,
+        );
+        expect(response.status).toBe(status);
+        expect(response.headers.get("etag")).toBe(etag);
+        expect(response.headers.get("cache-control")).toBe("private, no-store");
+        expect(response.headers.getSetCookie()).toEqual(["session=expired; Path=/"]);
+        expect(response.headers.get("x-source")).toBe("missing");
+        expect(await response.text()).toBe(status === 304 ? "" : html);
+      }
+
+      const unrelated = await handler(
+        makeRequest("/other-missing"),
+        "/other-missing",
+        null,
+        null,
+        null,
+      );
+      expect(unrelated.status).toBe(404);
+      expect(unrelated.headers.get("set-cookie")).toBeNull();
+      expect(unrelated.headers.get("x-source")).toBeNull();
+      expect(unrelated.headers.get("etag")).toBeNull();
     },
   );
 

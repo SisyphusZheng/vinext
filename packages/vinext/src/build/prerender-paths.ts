@@ -31,6 +31,7 @@ import {
 } from "./report.js";
 import {
   buildUrlFromParams,
+  localizePagesPath,
   layoutOnlyParamSets,
   resolveParentParams,
   routeStaticParamSets,
@@ -660,15 +661,6 @@ async function resolvePagesWarmRouteMetadata(options: {
     if (hasServerSideProps || hasStaticProps) dataPaths.push(pathname);
   }
   return { dataPaths, routePatterns };
-}
-
-function localizePagesPath(
-  pathname: string,
-  locale: string | undefined,
-  i18n: ResolvedNextConfig["i18n"],
-): string {
-  if (!i18n || !locale || locale === i18n.defaultLocale) return pathname;
-  return pathname === "/" ? `/${locale}` : `/${locale}${pathname}`;
 }
 
 /**

@@ -17,6 +17,12 @@ export type PrerenderManifestRoute = {
   fallback?: boolean;
   headers?: Record<string, string | string[]>;
   responseStatus?: number;
+  /** Pages source returned notFound, rather than rendering a custom 404 document. */
+  notFound?: true;
+  /** Original Pages redirect props, including client navigation semantics. */
+  redirectProps?: object;
+  /** Pages locale rendered for this public pathname. */
+  locale?: string;
   routeSegments?: string[];
   tags?: string[];
 };

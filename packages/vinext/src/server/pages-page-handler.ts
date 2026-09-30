@@ -909,6 +909,7 @@ export function createPagesPageHandler(
           },
           fontLinkHeader,
           i18n: buildI18nRenderContext(i18nConfig, locale, currentDefaultLocale, domainLocales),
+          staticPathsDefaultLocale: i18nConfig?.defaultLocale,
           isrCacheKey: pageIsrCacheKey,
           isrGet: routeIsrGet,
           hasPrerenderedPages: getCdnCacheAdapter().hasPrerenderedPages,
@@ -974,6 +975,7 @@ export function createPagesPageHandler(
           sanitizeDestination,
           scriptNonce,
           statusCode: renderStatusCode,
+          notFoundSourceHeaders: options?.__notFoundSourceHeaders,
           triggerBackgroundRegeneration,
           vinext: serializedPagesNextData.__vinext,
           nextData: serializedPagesNextData,
@@ -1027,11 +1029,6 @@ export function createPagesPageHandler(
             isOnDemandRevalidate && pageDataResult.onDemandRevalidateSuccess !== false
               ? withPagesCacheState(pageDataResult.response, "REVALIDATED", isrCachePathname)
               : pageDataResult.response;
-          if (pageDataResult.fromCache) {
-            // Cached pages bypass createPageReqRes. User-ended responses
-            // already inherited these headers and may have replaced them.
-            response = mergePagesNotFoundSourceHeaders(response, options?.__notFoundSourceHeaders);
-          }
           if (shouldApplyErrorResponsePolicy) {
             response = applyPagesErrorCachePolicy(
               response,
