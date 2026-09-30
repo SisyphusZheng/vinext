@@ -42,7 +42,11 @@ import {
   markRouteCacheabilityResponseBodyComplete,
   recordRouteCacheability,
 } from "vinext/shims/cacheability-classification";
-import { hasCdnResponsePolicy } from "./cache-control.js";
+import {
+  applyCdnResponseHeaders,
+  hasCdnResponsePolicy,
+  NEVER_CACHE_CONTROL,
+} from "./cache-control.js";
 import type { CachedRouteValue } from "vinext/shims/cache-handler";
 import { buildPageCacheTags } from "./implicit-tags.js";
 import { resolveClientStaleTimeSeconds } from "../utils/cache-control-metadata.js";
@@ -114,6 +118,7 @@ export type PrerenderableMetadataRoute = {
 };
 
 type RenderedMetadataRoute = {
+  browserCacheControl?: string;
   cacheLife: CacheLifeConfig | null;
   cacheable: boolean;
   collectedTags: string[];
@@ -125,6 +130,7 @@ function isOuterMetadataCacheEnabled(): boolean {
 }
 
 const routeFunctionCache = new WeakMap<MetadataRuntimeRoute, MetadataRouteFunctions>();
+const userMetadataResponses = new WeakSet<Response>();
 const USE_CACHE_FUNCTION_SYMBOL = Symbol.for("vinext.useCacheFunction");
 const CACHE_HEADERS = {
   noCache: "no-cache, no-store",
@@ -179,23 +185,6 @@ function metadataRouteCacheHeader(route: MetadataRuntimeRoute): string {
     return CACHE_HEADERS.noCache;
   }
   return CACHE_HEADERS.revalidate;
-}
-
-function withMetadataRouteCacheHeader(response: Response, route: MetadataRuntimeRoute): Response {
-  // Record authorship independently of whether shared admission accepts the
-  // policy. Private responses still retain their browser lifetime.
-  if (hasCdnResponsePolicy(response.headers)) {
-    markRouteCacheabilityExplicitResponsePolicy();
-  }
-  const headers = new Headers(response.headers);
-  if (!headers.has("Cache-Control")) {
-    headers.set("Cache-Control", metadataRouteCacheHeader(route));
-  }
-  return new Response(response.body, {
-    headers,
-    status: response.status,
-    statusText: response.statusText,
-  });
 }
 
 // Next.js compiles metadata files into GET Route Handlers, so they share the
@@ -337,6 +326,7 @@ async function captureRenderedMetadataRoute(
   route: MetadataRuntimeRoute,
   cleanPathname: string,
 ): Promise<RenderedMetadataRoute> {
+  const isUserResponse = userMetadataResponses.has(response);
   let completed = false;
   if (isOuterMetadataCacheEnabled()) {
     const result = await completeAppRouteHandlerResponse(response);
@@ -344,6 +334,11 @@ async function captureRenderedMetadataRoute(
     completed = result.completed;
     if (completed) markRouteCacheabilityResponseBodyComplete();
   }
+  // User streams may change their headers during consumption. Framework
+  // serializers keep their existing policy and fully-buffered body marker.
+  const browserCacheControl = response.headers.get("Cache-Control") ?? undefined;
+  const hasUserPolicy = isUserResponse && hasCdnResponsePolicy(response.headers);
+  if (hasUserPolicy) markRouteCacheabilityExplicitResponsePolicy();
   const observedCacheLife = _consumeRequestScopedCacheLife();
   const collectedTags = getCollectedFetchTags();
   const revalidate =
@@ -359,11 +354,25 @@ async function captureRenderedMetadataRoute(
     route.module?.dynamic !== "force-dynamic" &&
     frameworkRevalidate > 0 &&
     !response.headers.has("set-cookie");
+  const cacheControl = cacheable
+    ? buildAppRouteMissIsrCacheControl(frameworkRevalidate, cacheLife?.expire)
+    : NEVER_CACHE_CONTROL;
+  if (isUserResponse && !hasUserPolicy) {
+    // Development skips completion; fetched/redirect Responses can be immutable.
+    response = new Response(response.body, {
+      headers: new Headers(response.headers),
+      status: response.status,
+      statusText: response.statusText,
+    });
+    applyCdnResponseHeaders(response.headers, {
+      cacheControl: isOuterMetadataCacheEnabled() ? cacheControl : metadataRouteCacheHeader(route),
+    });
+  }
   recordRouteCacheability(
     cacheable
       ? {
           cacheable: true,
-          cacheControl: buildAppRouteMissIsrCacheControl(frameworkRevalidate, cacheLife?.expire),
+          cacheControl,
           tags: buildMetadataRouteTags(route, cleanPathname, collectedTags),
         }
       : { cacheable: false, dynamicUsage: true },
@@ -375,7 +384,7 @@ async function captureRenderedMetadataRoute(
     });
     applyPrerenderCacheTagsHeader(response.headers, collectedTags);
   }
-  return { cacheLife, cacheable, collectedTags, response };
+  return { browserCacheControl, cacheLife, cacheable, collectedTags, response };
 }
 
 async function writeRenderedMetadataRoute(
@@ -396,10 +405,7 @@ async function writeRenderedMetadataRoute(
   const expire = rendered.cacheLife?.expire ?? previousCacheControl?.expire;
   const stale = resolveClientStaleTimeSeconds(rendered.cacheLife) ?? previousCacheControl?.stale;
   const value = markMetadataRouteCacheValue(
-    await buildAppRouteCacheValue(
-      rendered.response,
-      rendered.response.headers.get("Cache-Control") ?? undefined,
-    ),
+    await buildAppRouteCacheValue(rendered.response, rendered.browserCacheControl),
   );
   await options.isrSet(routeKey, value, {
     cacheControl: isrCacheControl(revalidate === Infinity ? false : revalidate, {
@@ -654,7 +660,8 @@ async function handleGeneratedSitemap(
     id: makeThenableMetadataRouteId(matchedId),
   });
   if (result instanceof Response) {
-    return withMetadataRouteCacheHeader(result, route);
+    userMetadataResponses.add(result);
+    return result;
   }
   if (!isSitemapEntries(result)) {
     throw new TypeError("Metadata sitemap routes must return an array.");
@@ -739,7 +746,8 @@ async function callDynamicMetadataRoute(
   }
 
   if (result instanceof Response) {
-    return withMetadataRouteCacheHeader(result, route);
+    userMetadataResponses.add(result);
+    return result;
   }
 
   let body: string;

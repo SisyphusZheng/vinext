@@ -2357,7 +2357,9 @@ async function startPagesRouterServer(options: PagesRouterServerOptions) {
                     ...options,
                     originalUrl: originalRenderUrl,
                   },
-                  stagedHeaders,
+                  stagedHeaders?.has("Cache-Control")
+                    ? new Headers({ "Cache-Control": stagedHeaders.get("Cache-Control")! })
+                    : undefined,
                 )
             : null,
         handleApi:

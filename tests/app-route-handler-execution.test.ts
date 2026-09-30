@@ -1003,6 +1003,92 @@ describe("app route handler execution helpers", () => {
     }
   });
 
+  it.each([
+    [undefined, "private, max-age=300"],
+    ["public, max-age=1", "private, max-age=300"],
+    ["public, max-age=1", undefined],
+  ])("stores completed stream policy from %s to %s", async (initialPolicy, finalPolicy) => {
+    const revalidateSeconds = 60;
+    const writes = vi.fn();
+    const request = new Request("https://example.com/api/mixed-methods");
+    const context = createWorkerCacheabilityAdmissionContext(
+      { waitUntil() {} },
+      request,
+      JSON.stringify({ buildId: "build-a", routes: {}, version: 1 }),
+      "build-a",
+      true,
+    );
+    const state = Reflect.get(context, CACHEABILITY_REQUEST_STATE) as RouteCacheabilityState;
+    state.route = { kind: "app-route", pattern: "/api/mixed-methods" };
+    const dynamicUsage = createDynamicUsageState();
+
+    const response = await runWithExecutionContext(context, () =>
+      executeAppRouteHandler({
+        buildPageCacheTags() {
+          return [];
+        },
+        cleanPathname: "/api/mixed-methods",
+        clearRequestContext() {},
+        consumeDynamicUsage: dynamicUsage.consumeDynamicUsage,
+        executionContext: null,
+        getAndClearPendingCookies() {
+          return [];
+        },
+        getCollectedFetchTags() {
+          return [];
+        },
+        getDraftModeCookieHeader() {
+          return null;
+        },
+        handler: {
+          dynamic: "auto",
+          revalidate: revalidateSeconds,
+        },
+        handlerFn() {
+          const streamed = new Response(
+            new ReadableStream(
+              {
+                pull(controller) {
+                  if (finalPolicy) streamed.headers.set("Cache-Control", finalPolicy);
+                  else streamed.headers.delete("Cache-Control");
+                  controller.enqueue(new TextEncoder().encode("streamed"));
+                  controller.close();
+                },
+              },
+              { highWaterMark: 0 },
+            ),
+            {
+              headers: initialPolicy ? { "Cache-Control": initialPolicy } : {},
+            },
+          );
+          return streamed;
+        },
+        isAutoHead: false,
+        isProduction: true,
+        isrRouteKey(pathname) {
+          return pathname;
+        },
+        isrSet: writes,
+        markDynamicUsage: dynamicUsage.markDynamicUsage,
+        method: "GET",
+        middlewareContext: { headers: null, status: null },
+        params: null,
+        reportRequestError() {},
+        request,
+        revalidateSeconds,
+        routePattern: "/api/mixed-methods",
+        setHeadersAccessPhase() {
+          return "render";
+        },
+      }),
+    );
+    if (finalPolicy) expect(response.headers.get("Cache-Control")).toBe(finalPolicy);
+    else expect(response.headers.get("Cache-Control")).toContain("s-maxage=60");
+    await expect.poll(() => writes.mock.calls.length).toBe(1);
+    expect(writes.mock.calls[0][1].headers["cache-control"]).toBe(finalPolicy);
+    expect(state.explicitResponseCachePolicy === true).toBe(finalPolicy !== undefined);
+  });
+
   it("falls back to private streaming and defers cleanup when completion times out", async () => {
     const request = new Request("https://example.com/api/large", {
       headers: { Accept: "*/*" },

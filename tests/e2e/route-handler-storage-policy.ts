@@ -6,7 +6,9 @@ import { expect, test } from "@playwright/test";
 // Reproduced against next@16.2.7 build/start; these fixtures set no provider headers.
 export function testRouteHandlerStoragePolicies(): void {
   // Initially failing routes are dynamic in Next even with route revalidation.
-  for (const status of [400, 500]) {
+  // Keep these in the normal fixture: deployment warmup rejects intentional
+  // error endpoints before a deployed demo can run its E2Es.
+  for (const status of process.env.VINEXT_E2E_CACHE_BACKEND ? [] : [400, 500]) {
     test(`initial route status ${status} does not enter framework storage`, async ({
       baseURL,
       request,
@@ -79,6 +81,7 @@ export function testRouteHandlerStoragePolicies(): void {
       ["short-browser", "public, max-age=1", true],
       ["long-browser", "public, max-age=3600", true],
       ["private", "private, max-age=300", true],
+      ["stream-policy", "private, max-age=300", true],
       ["no-store", "no-store", true],
       ["control", undefined, true],
       ["force-static", "private, max-age=300", true],

@@ -400,13 +400,6 @@ async function executeAppRouteHandlerImpl(
     const handlerResult = tracedResult.handlerResult;
     let { dynamicUsedInHandler, response } = handlerResult;
     assertSupportedAppRouteHandlerResponse(response);
-    const browserCacheControl = response.headers.get("Cache-Control") ?? undefined;
-    const handlerSetCachePolicy = hasCdnResponsePolicy(response.headers);
-    const hasExplicitCacheablePolicy = hasExplicitCacheableResponsePolicy(response.headers);
-    if (handlerSetCachePolicy) {
-      markRouteCacheabilityExplicitResponsePolicy();
-    }
-
     const draftModeBeforeCompletion =
       options.getActiveDraftModeState?.() ?? options.isDraftMode === true;
     const handlerDraftCookieBeforeCompletion =
@@ -415,8 +408,8 @@ async function executeAppRouteHandlerImpl(
       shouldCompleteAppRouteHandlerResponse({
         dynamicConfig: options.handler.dynamic,
         dynamicUsedInHandler,
-        hasExplicitCacheablePolicy,
-        handlerSetCachePolicy,
+        hasExplicitCacheablePolicy: hasExplicitCacheableResponsePolicy(response.headers),
+        handlerSetCachePolicy: hasCdnResponsePolicy(response.headers),
         isAutoHead: options.isAutoHead,
         isDraftMode: draftModeBeforeCompletion || handlerDraftCookieBeforeCompletion != null,
         isProduction: options.isProduction,
@@ -435,6 +428,12 @@ async function executeAppRouteHandlerImpl(
         dynamicUsedDuringCompletion ||
         dynamicUsedInHandler;
     }
+
+    // Stream producers may add, replace, or remove headers while completing.
+    // Snapshot user policy only after EOF and before framework ISR headers.
+    const browserCacheControl = response.headers.get("Cache-Control") ?? undefined;
+    const handlerSetCachePolicy = hasCdnResponsePolicy(response.headers);
+    if (handlerSetCachePolicy) markRouteCacheabilityExplicitResponsePolicy();
 
     const requestCacheabilityVeto = getRouteCacheabilityDynamicReason();
     const responseMustStayPrivate = Boolean(

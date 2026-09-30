@@ -1039,7 +1039,7 @@ describe("handleMetadataRouteRequest", () => {
     expect(await response?.text()).toBe("image:post-small");
   });
 
-  it("sets metadata cache control on dynamic image route Response results", async () => {
+  it("uses framework cache control for a raw metadata Response without authored policy", async () => {
     // Ported from Next.js: test/e2e/app-dir/metadata-dynamic-routes/index.test.ts
     // https://github.com/vercel/next.js/blob/canary/test/e2e/app-dir/metadata-dynamic-routes/index.test.ts
     const route = {
@@ -1063,7 +1063,9 @@ describe("handleMetadataRouteRequest", () => {
 
     expect(response?.status).toBe(200);
     expect(response?.headers.get("content-type")).toBe("image/png");
-    expect(response?.headers.get("cache-control")).toBe("public, max-age=0, must-revalidate");
+    expect(response?.headers.get("cache-control")).toBe(
+      "s-maxage=31536000, stale-while-revalidate",
+    );
   });
 
   it("returns 404 for unknown or invalid generated image ids", async () => {
@@ -1123,6 +1125,18 @@ describe("handleMetadataRouteRequest", () => {
 });
 
 describe("metadata route cacheability registration", () => {
+  it("applies development metadata defaults to immutable Response headers", async () => {
+    await withEnvVar("NODE_ENV", "development", async () => {
+      const { response } = await handleWithAdmission("/event/london/42/opengraph-image", [
+        dynamicImageRoute(() => Response.redirect("https://example.com/image.png", 307)),
+      ]);
+      expect(response?.status).toBe(307);
+      expect(response?.headers.get("Location")).toBe("https://example.com/image.png");
+      expect(response?.headers.get("Cache-Control")).toBe("no-cache, no-store");
+      expect(response?.body).toBeNull();
+    });
+  });
+
   async function handleWithAdmission(
     cleanPathname: string,
     metadataRoutes: MetadataRuntimeRoute[],
@@ -1167,6 +1181,45 @@ describe("metadata route cacheability registration", () => {
       module: { default: response },
     };
   }
+
+  it.each([
+    [undefined, "private, max-age=300"],
+    ["public, max-age=1", "private, max-age=300"],
+    ["public, max-age=1", undefined],
+  ])(
+    "captures metadata stream policy from %s to %s after EOF",
+    async (initialPolicy, finalPolicy) => {
+      const write = vi.fn();
+      const route = dynamicImageRoute(() => {
+        const response = new Response(
+          new ReadableStream(
+            {
+              pull(controller) {
+                if (finalPolicy) response.headers.set("Cache-Control", finalPolicy);
+                else response.headers.delete("Cache-Control");
+                controller.enqueue(new TextEncoder().encode("image"));
+                controller.close();
+              },
+            },
+            { highWaterMark: 0 },
+          ),
+          { headers: initialPolicy ? { "Cache-Control": initialPolicy } : {} },
+        );
+        return response;
+      });
+      route.module!.revalidate = 2;
+      const { response, state } = await handleWithAdmission(
+        "/event/london/42/opengraph-image",
+        [route],
+        { isrSet: write, isrRouteKey: (path) => path },
+      );
+      if (finalPolicy) expect(response?.headers.get("Cache-Control")).toBe(finalPolicy);
+      else expect(response?.headers.get("Cache-Control")).toContain("s-maxage=2");
+      expect(write).toHaveBeenCalledOnce();
+      expect(write.mock.calls[0][1].headers["cache-control"]).toBe(finalPolicy);
+      expect(state.explicitResponseCachePolicy === true).toBe(finalPolicy !== undefined);
+    },
+  );
 
   it.each([
     [307, true],
