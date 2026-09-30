@@ -7,11 +7,7 @@ import {
   finalizeCacheAdapterPrerenderOutput,
   hasCacheAdapterPrerenderOutput,
 } from "../packages/vinext/src/cache/cache-adapters-virtual.js";
-import {
-  appIsrCacheKey,
-  isrCacheKey,
-  pagesIsrCacheKey,
-} from "../packages/vinext/src/server/isr-cache.js";
+import { appIsrCacheKey, pagesIsrCacheKey } from "../packages/vinext/src/server/isr-cache.js";
 import { staticAssetsAdapter } from "../packages/cloudflare/src/cache/static-assets-adapter.js";
 import createStaticAssetsCacheAdapter, {
   StaticAssetsCacheAdapter,
@@ -183,7 +179,7 @@ describe("staticAssetsAdapter", () => {
       await adapter.set(key, null);
       await adapter.revalidateTag("_N_T_/posts/first");
       expect(await adapter.get(key)).toEqual(cached);
-      expect(await adapter.get(isrCacheKey("pages", "/posts/missing", "build-a"))).toBeNull();
+      expect(await adapter.get(pagesIsrCacheKey("/posts/missing", "build-a"))).toBeNull();
     },
   );
 
@@ -246,11 +242,7 @@ describe("staticAssetsAdapter", () => {
         },
       },
     });
-    const key = isrCacheKey(
-      "pages",
-      "/terminal::i18n=" + encodeURIComponent("locale:fr"),
-      "build-a",
-    );
+    const key = pagesIsrCacheKey("/terminal", "build-a", "locale:fr");
     const cached = await adapter.get(key);
     expect(cached).not.toBeNull();
     expect(cached?.value).toEqual(expected);

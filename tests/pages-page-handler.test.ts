@@ -25,6 +25,7 @@ import { CloudflareCdnCacheAdapter } from "../packages/cloudflare/src/cache/cdn-
 import {
   getRevalidateSecret,
   isrCacheKey,
+  pagesIsrCacheKey,
   isrSet,
   PRERENDER_REVALIDATE_HEADER,
 } from "../packages/vinext/src/server/isr-cache.js";
@@ -282,7 +283,7 @@ describe("createPagesPageHandler — route miss", () => {
         makeOpts({ pageRoutes: [route], errorPageRoute: pattern === "/_error" ? route : null }),
       );
       const response = await handler(makeRequest("/missing"), "/missing", null, null, null);
-      expect(get).toHaveBeenCalledExactlyOnceWith(isrCacheKey("pages", "/404", "test-build-id"));
+      expect(get).toHaveBeenCalledExactlyOnceWith(pagesIsrCacheKey("/404", "test-build-id"));
       expect(response.status).toBe(404);
       expect(response.headers.get("x-vinext-cache")).toBe("HIT");
       expect(await response.text()).toBe("prebuilt 404");

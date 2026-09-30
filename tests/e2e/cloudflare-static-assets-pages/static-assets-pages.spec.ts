@@ -331,9 +331,15 @@ test("rewrites serve public assets but cannot expose private cache artifacts", a
 }) => {
   const artifacts = fs.readdirSync(cacheDir);
   for (const phase of ["before", "after", "fallback"]) {
-    const publicAsset = await request.get(`/${phase}/visible.txt`);
-    expect(publicAsset.status()).toBe(200);
-    expect(await publicAsset.text()).toBe("Public fixture asset\n");
+    for (const [pathname, body] of [
+      ["visible.txt", "Public fixture asset\n"],
+      ["%76isible.txt", "Public fixture asset\n"],
+      ["caf%c3%a9.txt", "Unicode public fixture asset\n"],
+    ]) {
+      const publicAsset = await request.get(`/${phase}/${pathname}`);
+      expect(publicAsset.status()).toBe(200);
+      expect(await publicAsset.text()).toBe(body);
+    }
     for (const artifact of artifacts) {
       for (const directory of ["_vinext", "%5fvinext"]) {
         const response = await request.get(`/${phase}/${directory}/static-cache/${artifact}`);

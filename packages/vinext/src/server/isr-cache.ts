@@ -380,7 +380,9 @@ export function pagesIsrCacheKey(
   // Strip the pathname's trailing slash before appending the locale/domain variant.
   const normalized = normalizeCachePathname(normalizePathnameForRouteMatch(pathname));
   const variant = i18nCacheVariant ? `::i18n=${encodeURIComponent(i18nCacheVariant)}` : "";
-  return isrCacheKey("pages", normalized + variant, buildId);
+  // Legacy keys retained raw escapes. A stable build ID must not let a new
+  // literal-percent pathname reinterpret an old encoded-parameter entry.
+  return isrCacheKey("pages:v2", normalized + variant, buildId);
 }
 
 /**

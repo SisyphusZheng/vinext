@@ -975,6 +975,19 @@ describe("revalidatePath type parameter", () => {
 // Next.js decodes each segment before looking up the prerender/response cache.
 // https://github.com/vercel/next.js/blob/canary/packages/next/src/server/route-modules/route-module.ts
 describe("Pages cache pathname identity", () => {
+  it("does not reinterpret persisted legacy keys when the build ID stays the same", async () => {
+    const cache = new MemoryCacheHandler();
+    const oldKey = isrCacheKey("pages", "/posts/%66irst", "stable");
+    const newKey = pagesIsrCacheKey("/posts/%2566irst", "stable");
+    await cache.set(
+      oldKey,
+      buildPagesCacheValue("<p>first</p>", { pageProps: { slug: "first" } }),
+      {},
+    );
+    expect(await cache.get(oldKey)).not.toBeNull();
+    expect(await cache.get(newKey)).toBeNull();
+  });
+
   it.each([null, "locale:en", "locale:fr", JSON.stringify(["fr.example", "fr"])])(
     "shares equivalent encodings and trailing slashes within variant %s",
     (variant) => {

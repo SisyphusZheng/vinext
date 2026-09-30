@@ -131,6 +131,7 @@ export async function fetchWorkerFilesystemRoute(
   // destination, never the original request's build-asset classification.
   if (
     !publicFiles.has(assetUrl.pathname) &&
+    !publicFiles.has(decodedAssetUrl.pathname) &&
     !isNextStaticPath(decodedAssetUrl.pathname, basePath, assetPathPrefix)
   ) {
     return false;
