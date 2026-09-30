@@ -42,10 +42,14 @@ test("automatically static pages are served from the packaged HTML", async ({ re
   }
 });
 
-test("cached pages preserve a custom Document HTTP status", async ({ request }) => {
+test("cached pages preserve Document status and content type without replaying cookies", async ({
+  request,
+}) => {
   const response = await request.get("/accepted");
   expect(response.status()).toBe(202);
   expect(response.headers()["x-vinext-cache"]).toBe("HIT");
+  expect(response.headers()["content-type"]).toBe("application/xhtml+xml; charset=utf-8");
+  expect(response.headers()["set-cookie"]).toBeUndefined();
   expect(await response.text()).toContain("Accepted static page");
 });
 

@@ -1148,6 +1148,7 @@ export async function prerenderPages({
         let result: PrerenderRouteResult;
         try {
           const response = await renderPage(urlPath);
+          const contentType = response.headers.get("content-type");
           // getStaticProps terminal responses carry the framework's MISS marker.
           // A middleware/config/_app early response must not become a snapshot.
           const isStaticPropsResponse =
@@ -1215,6 +1216,7 @@ export async function prerenderPages({
             ...(urlPath !== route.pattern ? { path: urlPath } : {}),
             ...(locale ? { locale } : {}),
             ...(response.ok ? { responseStatus: response.status } : {}),
+            ...(response.ok && contentType ? { headers: { "content-type": contentType } } : {}),
             ...(notFound ? { notFound: true, responseStatus: 404 } : {}),
             ...(redirect
               ? {
@@ -1278,6 +1280,7 @@ export async function prerenderPages({
             outputFiles,
             revalidate: false,
             router: "pages",
+            headers: { "content-type": contentType },
             ...(pathname !== "/404" ? { path: pathname } : {}),
             ...(locale ? { locale } : {}),
           });

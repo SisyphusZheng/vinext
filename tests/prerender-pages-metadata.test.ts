@@ -53,10 +53,14 @@ async function render(
 }
 
 describe("Pages prerender response metadata", () => {
-  it("records a successful custom HTTP status in the manifest", async () => {
+  it("records a successful status and content type without request-specific headers", async () => {
     page("accepted.tsx");
     const result = await render((_req, res) => {
-      res.writeHead(202, { "Content-Type": "text/html" });
+      res.writeHead(202, {
+        "Content-Type": "application/xhtml+xml; charset=utf-8",
+        "Set-Cookie": "build-only=do-not-replay",
+        "X-Request-Id": "prerender-request",
+      });
       res.end("<html>Accepted</html>");
     });
 
@@ -67,6 +71,9 @@ describe("Pages prerender response metadata", () => {
       fs.readFileSync(path.join(root, "out/vinext-prerender.json"), "utf8"),
     );
     expect(manifest.routes[0].responseStatus).toBe(202);
+    expect(manifest.routes[0].headers).toEqual({
+      "content-type": "application/xhtml+xml; charset=utf-8",
+    });
   });
 
   // Next.js: test/e2e/prerender.test.ts and test/e2e/i18n-data-fetching-redirect/redirect.test.ts
@@ -118,6 +125,9 @@ describe("Pages prerender response metadata", () => {
       const manifest = JSON.parse(
         fs.readFileSync(path.join(root, "out/vinext-prerender.json"), "utf8"),
       );
+      expect(
+        manifest.routes.find((route: { route: string }) => route.route === "/404").headers,
+      ).toEqual({ "content-type": "text/html" });
       expect(
         manifest.routes.find((route: { route: string }) => route.route === "/missing"),
       ).toMatchObject({
