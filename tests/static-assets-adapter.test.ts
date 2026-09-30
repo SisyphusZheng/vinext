@@ -7,7 +7,11 @@ import {
   finalizeCacheAdapterPrerenderOutput,
   hasCacheAdapterPrerenderOutput,
 } from "../packages/vinext/src/cache/cache-adapters-virtual.js";
-import { appIsrCacheKey, isrCacheKey } from "../packages/vinext/src/server/isr-cache.js";
+import {
+  appIsrCacheKey,
+  isrCacheKey,
+  pagesIsrCacheKey,
+} from "../packages/vinext/src/server/isr-cache.js";
 import { staticAssetsAdapter } from "../packages/cloudflare/src/cache/static-assets-adapter.js";
 import createStaticAssetsCacheAdapter, {
   StaticAssetsCacheAdapter,
@@ -169,11 +173,7 @@ describe("staticAssetsAdapter", () => {
           },
         },
       });
-      const key = isrCacheKey(
-        "pages",
-        pathname + (locale ? "::i18n=" + encodeURIComponent(`locale:${locale}`) : ""),
-        "build-a",
-      );
+      const key = pagesIsrCacheKey(pathname, "build-a", locale ? `locale:${locale}` : undefined);
       const cached = await adapter.get(key);
       expect(cached).toMatchObject({
         cacheControl: { revalidate: 1 },

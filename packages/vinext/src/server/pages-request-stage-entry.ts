@@ -609,7 +609,8 @@ async function handleRequestImpl(
           phase,
           (assetRequest) => Promise.resolve(assets.fetch(assetRequest)),
           publicFiles,
-          missingBuildAsset,
+          basePath,
+          assetPathPrefix,
         );
       },
     };

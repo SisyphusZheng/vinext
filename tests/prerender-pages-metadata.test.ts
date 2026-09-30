@@ -256,14 +256,14 @@ describe("Pages prerender locales", () => {
     expect(staticPathsContext?.get("defaultLocale")).toBe("en");
     expect(requested.sort()).toEqual(
       [
-        "/",
-        "/404",
+        "/en",
+        "/en/404",
         "/fr",
         "/fr/404",
         "/fr/posts/fr-object",
         "/fr/posts/fr-string",
-        "/posts/default",
-        "/posts/en-string",
+        "/en/posts/default",
+        "/en/posts/en-string",
       ].sort(),
     );
     const manifest = JSON.parse(

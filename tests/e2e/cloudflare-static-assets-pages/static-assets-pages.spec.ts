@@ -253,3 +253,92 @@ test("cached internal redirects preserve client navigation", async ({ page }) =>
   await expect(page.locator("#render-source")).toHaveText("build-time");
   expect(await page.evaluate(() => Reflect.get(window, "__redirectNoReload"))).toBe(true);
 });
+
+// Ported from Next.js: test/e2e/prerender.test.ts (encoded paths)
+// https://github.com/vercel/next.js/blob/canary/test/e2e/prerender.test.ts
+test("equivalent encodings hit the same snapshot while escaped delimiters stay distinct", async ({
+  request,
+}) => {
+  const buildId = fs.readFileSync(path.join(fixture, "dist/server/BUILD_ID"), "utf8").trim();
+  for (const [slug, encodings] of [
+    ["first", ["first", "%66irst"]],
+    ["café", ["caf%C3%A9", "caf%c3%a9"]],
+    ["a/b", ["a%2Fb", "a%2fb"]],
+    ["a%2Fb", ["a%252Fb"]],
+    ["a?b", ["a%3Fb"]],
+    ["a#b", ["a%23b"]],
+    ["a\\b", ["a%5Cb"]],
+    ["%66irst", ["%2566irst"]],
+  ] as const) {
+    let generation: string | undefined;
+    for (const encoded of encodings) {
+      const html = await request.get(`/posts/${encoded}`);
+      expectHit(html);
+      const data = await request.get(`/_next/data/${buildId}/posts/${encoded}.json`);
+      expectHit(data);
+      const props = (await data.json()).pageProps;
+      expect(props.slug).toBe(slug);
+      expect(props.source).toBe("build-time");
+      expect(await html.text()).toContain(props.generation);
+      if (generation) expect(props.generation).toBe(generation);
+      generation = props.generation;
+    }
+  }
+});
+
+test("default-locale paths named after locales keep their own terminal snapshots", async ({
+  request,
+}) => {
+  const errorFixture = path.resolve("tests/e2e/cloudflare-static-assets-pages/error-fixture");
+  const buildId = fs.readFileSync(path.join(errorFixture, "dist/server/BUILD_ID"), "utf8").trim();
+  const redirect = await request.get("http://localhost:4217/en/fr/", { maxRedirects: 0 });
+  expect(redirect.status()).toBe(307);
+  expect(redirect.headers()["location"]).toBe("/posts/first/?from=default-fr");
+  expect(redirect.headers()["x-vinext-cache"]).toBe("HIT");
+  const data = await request.get(`http://localhost:4217/_next/data/${buildId}/en/fr.json`);
+  expectHit(data);
+  expect((await data.json()).pageProps.__N_REDIRECT).toBe("/posts/first/?from=default-fr");
+  const notFound = await request.get(`http://localhost:4217/_next/data/${buildId}/en/en.json`);
+  expect(notFound.status()).toBe(404);
+  expect(notFound.headers()["x-vinext-cache"]).toBe("HIT");
+  expect(await notFound.json()).toEqual({ notFound: true });
+  const frenchRoot = await request.get("http://localhost:4217/fr/");
+  expectHit(frenchRoot);
+  expect(await frenchRoot.text()).toContain('id="locale">fr</p>');
+});
+
+test("locale snapshots share encoded and trailing-slash request identities", async ({
+  request,
+}) => {
+  const errorFixture = path.resolve("tests/e2e/cloudflare-static-assets-pages/error-fixture");
+  const buildId = fs.readFileSync(path.join(errorFixture, "dist/server/BUILD_ID"), "utf8").trim();
+  for (const prefix of ["", "/en", "/fr"]) {
+    for (const slug of ["first", "%66irst"]) {
+      const response = await request.get(`http://localhost:4217${prefix}/posts/${slug}/`);
+      expectHit(response);
+      expect(await response.text()).toContain('id="render-source">build-time</p>');
+      const data = await request.get(
+        `http://localhost:4217/_next/data/${buildId}${prefix}/posts/${slug}.json`,
+      );
+      expectHit(data);
+      expect((await data.json()).pageProps.locale).toBe(prefix === "/fr" ? "fr" : "en");
+    }
+  }
+});
+
+test("rewrites serve public assets but cannot expose private cache artifacts", async ({
+  request,
+}) => {
+  const artifacts = fs.readdirSync(cacheDir);
+  for (const phase of ["before", "after", "fallback"]) {
+    const publicAsset = await request.get(`/${phase}/visible.txt`);
+    expect(publicAsset.status()).toBe(200);
+    expect(await publicAsset.text()).toBe("Public fixture asset\n");
+    for (const artifact of artifacts) {
+      for (const directory of ["_vinext", "%5fvinext"]) {
+        const response = await request.get(`/${phase}/${directory}/static-cache/${artifact}`);
+        expect(response.status(), `${phase}/${directory}/${artifact}`).toBe(404);
+      }
+    }
+  }
+});

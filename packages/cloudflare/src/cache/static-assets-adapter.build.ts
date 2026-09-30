@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { appIsrCacheKey, isrCacheKey } from "vinext/internal/server/isr-cache";
+import { appIsrCacheKey, pagesIsrCacheKey } from "vinext/internal/server/isr-cache";
 import { extractVinextNextDataJson } from "vinext/internal/client/vinext-next-data";
 import {
   readPrerenderManifest,
@@ -24,16 +24,15 @@ function cacheAssetId(key: string): string {
 }
 
 function pagesCacheKey(pathname: string, locale: string | undefined, buildId: string): string {
-  // Pages requests retain URL escapes, but strip the locale prefix before ISR.
+  // Strip the explicit prerender locale, just as the request handler does.
   let pagesPathname = new URL(`https://vinext.invalid${pathname}`).pathname;
   if (locale) {
     const prefix = `/${locale}`;
     if (pagesPathname === prefix) pagesPathname = "/";
     else if (pagesPathname.startsWith(`${prefix}/`))
       pagesPathname = pagesPathname.slice(prefix.length);
-    pagesPathname += `::i18n=${encodeURIComponent(`locale:${locale}`)}`;
   }
-  return isrCacheKey("pages", pagesPathname, buildId);
+  return pagesIsrCacheKey(pagesPathname, buildId, locale ? `locale:${locale}` : undefined);
 }
 
 function cacheControl(route: PrerenderManifestRoute) {

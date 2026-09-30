@@ -50,7 +50,7 @@ import { buildDefaultPagesNotFoundResponse } from "./pages-default-404.js";
 import {
   isrGet,
   isrSet,
-  isrCacheKey,
+  pagesIsrCacheKey,
   coalesceOnDemandRevalidation,
   triggerBackgroundRegeneration,
   PRERENDER_REVALIDATE_HEADER,
@@ -466,15 +466,8 @@ export function createPagesPageHandler(
   function isrCacheKeyForRequest(
     i18nCacheVariant: string | null,
   ): (router: string, pathname: string) => string {
-    if (!i18nCacheVariant) {
-      return (router, pathname) => isrCacheKey(router, pathname, buildId ?? undefined);
-    }
-    return (router, pathname) =>
-      isrCacheKey(
-        router,
-        pathname + "::i18n=" + encodeURIComponent(i18nCacheVariant),
-        buildId ?? undefined,
-      );
+    return (_router, pathname) =>
+      pagesIsrCacheKey(pathname, buildId ?? undefined, i18nCacheVariant);
   }
 
   // The recursive render function — defined inside so it can self-call for

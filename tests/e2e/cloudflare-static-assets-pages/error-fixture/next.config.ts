@@ -1,4 +1,5 @@
 export default {
+  trailingSlash: true,
   i18n: {
     locales: ["en", "fr"],
     defaultLocale: "en",
