@@ -1214,6 +1214,7 @@ export async function prerenderPages({
             router: "pages",
             ...(urlPath !== route.pattern ? { path: urlPath } : {}),
             ...(locale ? { locale } : {}),
+            ...(response.ok ? { responseStatus: response.status } : {}),
             ...(notFound ? { notFound: true, responseStatus: 404 } : {}),
             ...(redirect
               ? {

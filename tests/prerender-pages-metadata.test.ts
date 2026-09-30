@@ -53,6 +53,22 @@ async function render(
 }
 
 describe("Pages prerender response metadata", () => {
+  it("records a successful custom HTTP status in the manifest", async () => {
+    page("accepted.tsx");
+    const result = await render((_req, res) => {
+      res.writeHead(202, { "Content-Type": "text/html" });
+      res.end("<html>Accepted</html>");
+    });
+
+    expect(result.routes).toEqual([
+      expect.objectContaining({ route: "/accepted", status: "rendered", responseStatus: 202 }),
+    ]);
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(root, "out/vinext-prerender.json"), "utf8"),
+    );
+    expect(manifest.routes[0].responseStatus).toBe(202);
+  });
+
   // Next.js: test/e2e/prerender.test.ts and test/e2e/i18n-data-fetching-redirect/redirect.test.ts
   // https://github.com/vercel/next.js/blob/canary/test/e2e/prerender.test.ts
   it.each([undefined, true, false])(

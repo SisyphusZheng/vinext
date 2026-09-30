@@ -176,8 +176,11 @@ export function finalizeStaticAssetsPrerenderOutput(
           {
             ...route,
             responseStatus:
-              route.responseStatus ??
-              (route.route === "/404" ? 404 : route.route === "/500" ? 500 : 200),
+              route.route === "/404"
+                ? 404
+                : route.route === "/500"
+                  ? 500
+                  : (route.responseStatus ?? 200),
           },
           JSON.stringify({ html, pageData: nextData.props }),
         ),

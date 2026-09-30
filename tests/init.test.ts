@@ -992,32 +992,46 @@ export default { plugins: [vinext({ cache: { cdn: staticAssetsAdapter({ binding:
     },
   );
 
-  it("preserves a custom Wrangler assets binding for the Static Assets cache", async () => {
-    setupProject(tmpDir, { router: "app" });
-    writeFile(
-      tmpDir,
-      "wrangler.jsonc",
-      JSON.stringify({
-        main: "vinext/server/fetch-handler",
-        assets: { directory: "build/client", not_found_handling: "none", binding: "STATIC" },
-      }),
-    );
+  it.each(["app", "pages"] as const)(
+    "preserves custom Wrangler assets for the %s Static Assets cache",
+    async (router) => {
+      setupProject(tmpDir, { router });
+      writeFile(
+        tmpDir,
+        "wrangler.jsonc",
+        JSON.stringify({
+          main: "vinext/server/fetch-handler",
+          assets: { directory: "build/client", not_found_handling: "none", binding: "STATIC" },
+        }),
+      );
 
-    await runInit(tmpDir, {
-      cloudflare: {
-        dataCache: "none",
-        cdnCache: "static-assets",
-        imageOptimization: "none",
-        legacyWrangler: true,
-      },
-    });
+      await runInit(tmpDir, {
+        cloudflare: {
+          dataCache: "none",
+          cdnCache: "static-assets",
+          imageOptimization: "none",
+          legacyWrangler: true,
+        },
+      });
 
-    expect(readFile(tmpDir, "vite.config.ts")).toContain(
-      'cdn: staticAssetsAdapter({ binding: "STATIC" })',
-    );
-    expect(readFile(tmpDir, "vite.config.ts")).toContain('clientOutDir: "build/client"');
-    expect(JSON.parse(readFile(tmpDir, "wrangler.jsonc")).assets.binding).toBe("STATIC");
-  });
+      expect(readFile(tmpDir, "vite.config.ts")).toContain(
+        'cdn: staticAssetsAdapter({ binding: "STATIC" })',
+      );
+      expect(readFile(tmpDir, "vite.config.ts")).toContain('clientOutDir: "build/client"');
+      if (router === "pages") {
+        expect(readFile(tmpDir, "vite.config.ts")).toContain(
+          'client: { build: { outDir: "build/client" } }',
+        );
+        expect(readFile(tmpDir, "vite.config.ts")).toContain(
+          'ssr: { build: { outDir: "dist/server" } }',
+        );
+        expect(readFile(tmpDir, "vite.config.ts")).toContain(
+          'cloudflare({ viteEnvironment: { name: "ssr" } })',
+        );
+      }
+      expect(JSON.parse(readFile(tmpDir, "wrangler.jsonc")).assets.binding).toBe("STATIC");
+    },
+  );
 
   it("does not replace an existing custom CDN adapter with Static Assets", async () => {
     setupProject(tmpDir, { router: "app" });

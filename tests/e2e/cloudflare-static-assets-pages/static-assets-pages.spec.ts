@@ -42,6 +42,13 @@ test("automatically static pages are served from the packaged HTML", async ({ re
   }
 });
 
+test("cached pages preserve a custom Document HTTP status", async ({ request }) => {
+  const response = await request.get("/accepted");
+  expect(response.status()).toBe(202);
+  expect(response.headers()["x-vinext-cache"]).toBe("HIT");
+  expect(await response.text()).toContain("Accepted static page");
+});
+
 test("client navigation reuses build-time page data without a document reload", async ({
   page,
 }) => {
