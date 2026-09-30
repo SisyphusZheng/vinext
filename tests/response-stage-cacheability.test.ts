@@ -779,6 +779,20 @@ describe("response-stage metadata route admission", () => {
     },
   );
 
+  // Next allows redirects and 404 metadata in the full route cache.
+  // https://github.com/vercel/next.js/blob/v16.2.7/packages/next/src/export/routes/app-route.ts
+  it.each([307, 404])("admits static metadata status %s", async (status) => {
+    const { response, state } = await renderEventImage({
+      response: png({ "Cache-Control": "private, max-age=300" }, status),
+    });
+    expect(response.status).toBe(status);
+    expect(state?.outcome?.cacheable).toBe(true);
+    expect(response.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+      "public, max-age=31536000, stale-while-revalidate=31536000",
+    );
+    expect(response.headers.get("Cache-Control")).toBe("private, max-age=300");
+  });
+
   it.each([
     [
       "the route sets a cookie",
@@ -792,6 +806,7 @@ describe("response-stage metadata route admission", () => {
       "the request carries authorization",
       { headers: { Authorization: "Bearer token" }, response: png({ "Cache-Control": YEAR }) },
     ],
+    ["the route returns a 400", { response: png({ "Cache-Control": YEAR }, 400) }],
     ["the route fails with a 5xx", { response: png({ "Cache-Control": YEAR }, 503) }],
     ["the request is not a read", { method: "POST", response: png({ "Cache-Control": YEAR }) }],
   ])("rejects metadata shared storage when %s", async (_label, options) => {

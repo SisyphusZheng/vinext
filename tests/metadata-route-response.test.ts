@@ -600,66 +600,74 @@ describe("handleMetadataRouteRequest", () => {
     expect(new TextDecoder().decode(writes[0].value.body)).toContain("/regenerated");
   });
 
-  it("preserves stale metadata when background regeneration returns a non-ok response", async () => {
-    let metadataCalls = 0;
-    let regenerate: (() => Promise<void>) | undefined;
-    const writes: unknown[] = [];
-    const defaultExport = markUseCache(async () => {
-      metadataCalls++;
-      return new Response("missing", { status: 404 });
-    });
+  it.each([
+    [307, true],
+    [404, true],
+    [400, false],
+    [500, false],
+  ] as const)(
+    "handles metadata regeneration status %s consistently with static admission",
+    async (status, cacheable) => {
+      let metadataCalls = 0;
+      let regenerate: (() => Promise<void>) | undefined;
+      const writes: unknown[] = [];
+      const defaultExport = markUseCache(async () => {
+        metadataCalls++;
+        return new Response("replacement", { status });
+      });
 
-    const response = await handleMetadataRouteRequest({
-      cleanPathname: "/icon",
-      isrRouteKey: (pathname) => `metadata:${pathname}`,
-      async isrGet() {
-        return {
-          isStale: true,
-          value: {
-            lastModified: 1,
-            cacheControl: { revalidate: 60 },
+      const response = await handleMetadataRouteRequest({
+        cleanPathname: "/icon",
+        isrRouteKey: (pathname) => `metadata:${pathname}`,
+        async isrGet() {
+          return {
+            isStale: true,
             value: {
-              kind: "APP_ROUTE",
-              body: new TextEncoder().encode("stale icon").buffer,
-              headers: {
-                "content-type": "image/png",
-                "x-vinext-metadata-route-cache": "1",
+              lastModified: 1,
+              cacheControl: { revalidate: 60 },
+              value: {
+                kind: "APP_ROUTE",
+                body: new TextEncoder().encode("stale icon").buffer,
+                headers: {
+                  "content-type": "image/png",
+                  "x-vinext-metadata-route-cache": "1",
+                },
+                status: 200,
               },
-              status: 200,
             },
-          },
-        };
-      },
-      async isrSet(...args) {
-        writes.push(args);
-      },
-      makeThenableParams,
-      metadataRoutes: [
-        {
-          type: "icon",
-          isDynamic: true,
-          filePath: "/tmp/app/icon.tsx",
-          routePrefix: "",
-          routeSegments: ["icon"],
-          servedUrl: "/icon",
-          contentType: "image/png",
-          module: { default: defaultExport },
+          };
         },
-      ],
-      scheduleBackgroundRegeneration(_key, renderFn) {
-        regenerate = renderFn;
-      },
-    });
+        async isrSet(...args) {
+          writes.push(args);
+        },
+        makeThenableParams,
+        metadataRoutes: [
+          {
+            type: "icon",
+            isDynamic: true,
+            filePath: "/tmp/app/icon.tsx",
+            routePrefix: "",
+            routeSegments: ["icon"],
+            servedUrl: "/icon",
+            contentType: "image/png",
+            module: { default: defaultExport },
+          },
+        ],
+        scheduleBackgroundRegeneration(_key, renderFn) {
+          regenerate = renderFn;
+        },
+      });
 
-    expect(metadataCalls).toBe(0);
-    expect(response?.status).toBe(200);
-    await expect(response?.text()).resolves.toBe("stale icon");
-    expect(regenerate).toBeTypeOf("function");
+      expect(metadataCalls).toBe(0);
+      expect(response?.status).toBe(200);
+      await expect(response?.text()).resolves.toBe("stale icon");
+      expect(regenerate).toBeTypeOf("function");
 
-    await regenerate?.();
-    expect(metadataCalls).toBe(1);
-    expect(writes).toHaveLength(0);
-  });
+      await regenerate?.();
+      expect(metadataCalls).toBe(1);
+      expect(writes).toHaveLength(cacheable ? 1 : 0);
+    },
+  );
 
   it("does not inspect generateSitemaps on non-sitemap metadata routes", async () => {
     let generateSitemapsReads = 0;
@@ -1159,6 +1167,35 @@ describe("metadata route cacheability registration", () => {
       module: { default: response },
     };
   }
+
+  it.each([
+    [307, true],
+    [404, true],
+    [400, false],
+    [500, false],
+  ] as const)(
+    "classifies metadata status %s consistently for framework and edge storage",
+    async (status, cacheable) => {
+      const write = vi.fn();
+      const { response, state } = await handleWithAdmission(
+        "/event/london/42/opengraph-image",
+        [
+          dynamicImageRoute(
+            () =>
+              new Response("not an image", {
+                status,
+                headers: { "Cache-Control": "public, max-age=300" },
+              }),
+          ),
+        ],
+        { isrSet: write, isrRouteKey: (path) => path },
+      );
+      expect(response?.status).toBe(status);
+      expect(response?.headers.get("Cache-Control")).toBe("public, max-age=300");
+      expect(state.outcome?.cacheable).toBe(cacheable);
+      expect(write).toHaveBeenCalledTimes(cacheable ? 1 : 0);
+    },
+  );
 
   it.each(["auto", "force-static"])(
     "observes late metadata request reads in %s mode",

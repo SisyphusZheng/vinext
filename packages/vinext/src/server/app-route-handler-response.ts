@@ -124,7 +124,12 @@ export function buildRouteHandlerCachedResponse(
     browserCacheControl: headers.get("Cache-Control") ?? undefined,
   });
 
-  return new Response(options.isHead ? null : cachedValue.body, {
+  const hasNoBody =
+    options.isHead ||
+    cachedValue.status === 204 ||
+    cachedValue.status === 205 ||
+    cachedValue.status === 304;
+  return new Response(hasNoBody ? null : cachedValue.body, {
     status: cachedValue.status,
     headers,
   });

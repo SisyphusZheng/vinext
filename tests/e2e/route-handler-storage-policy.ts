@@ -5,6 +5,53 @@ import { expect, test } from "@playwright/test";
 // https://github.com/vercel/next.js/blob/v16.2.7/test/e2e/app-dir/app-routes/app-custom-routes.test.ts
 // Reproduced against next@16.2.7 build/start; these fixtures set no provider headers.
 export function testRouteHandlerStoragePolicies(): void {
+  // Next caches static metadata redirects and 404s, including their status.
+  // https://github.com/vercel/next.js/blob/v16.2.7/packages/next/src/export/routes/app-route.ts
+  for (const status of [307, 404]) {
+    test(`metadata status ${status} retains framework revalidation`, async ({
+      baseURL,
+      request,
+    }) => {
+      test.setTimeout(45_000);
+      test.skip(
+        process.env.VINEXT_E2E_CACHE_BACKEND === "workers-cache" &&
+          !baseURL?.startsWith("https://"),
+        "Workers Cache storage requires the deployed edge",
+      );
+      const url = `${baseURL}/metadata-storage/status-${status}/opengraph-image`;
+      const read = async () => {
+        const response = await request.get(url, { maxRedirects: 0 });
+        expect(response.status()).toBe(status);
+        expect(response.headers()["cache-control"]).toBe("private, max-age=300");
+        expect(response.headers()["x-render-id"]).toEqual(expect.any(String));
+        return {
+          renderId: response.headers()["x-render-id"],
+          hit: [
+            response.headers()["x-vinext-cache"],
+            response.headers()["cf-cache-status"],
+          ].includes("HIT"),
+        };
+      };
+      let anchor = await read();
+      await expect
+        .poll(
+          async () => {
+            anchor = await read();
+            return anchor.hit;
+          },
+          { timeout: 15000 },
+        )
+        .toBe(true);
+      const head = await request.head(url, { maxRedirects: 0 });
+      expect(head.status()).toBe(status);
+      expect(head.headers()["cache-control"]).toBe("private, max-age=300");
+      expect(await head.body()).toHaveLength(0);
+      await new Promise((resolve) => setTimeout(resolve, 3200));
+      await expect
+        .poll(async () => (await read()).renderId, { timeout: 15000 })
+        .not.toBe(anchor.renderId);
+    });
+  }
   for (const kind of ["api", "metadata"] as const) {
     for (const [scenario, apiPolicy, cached] of [
       ["header-only", "public, max-age=3600", false],
@@ -78,15 +125,25 @@ export function testRouteHandlerStoragePolicies(): void {
           expect(await head.body()).toHaveLength(0);
           const regenerates =
             scenario === "long-browser" || (kind === "metadata" && scenario === "force-static");
-          if (scenario === "short-browser" || regenerates) {
-            await new Promise((resolve) => setTimeout(resolve, 3_200));
-          }
           if (regenerates) {
+            await new Promise((resolve) => setTimeout(resolve, 3_200));
             await expect
               .poll(async () => (await read()).renderId, { timeout: 15_000 })
               .not.toBe(first.renderId);
           } else {
-            expect((await read()).renderId).toBe(first.renderId);
+            // A warmed entry may expire during this window. Retry the whole
+            // HIT-to-HIT check so stale responses cannot hide a wrong TTL.
+            await expect(async () => {
+              const anchor = await read();
+              expect(anchor.hit).toBe(true);
+              if (scenario === "short-browser") {
+                await new Promise((resolve) => setTimeout(resolve, 3_200));
+              }
+              const retained = await read();
+              expect(retained.hit).toBe(true);
+              expect(retained.renderId).toBe(anchor.renderId);
+              first = retained;
+            }).toPass({ timeout: 20_000, intervals: [100, 250, 500, 1000] });
           }
         } else {
           const second = await read();

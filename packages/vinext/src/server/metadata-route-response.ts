@@ -351,6 +351,7 @@ async function captureRenderedMetadataRoute(
   const frameworkRevalidate = Math.min(observedCacheLife?.revalidate ?? Infinity, revalidate);
   const cacheLife = { ...observedCacheLife, revalidate: frameworkRevalidate };
   const cacheable =
+    (response.status < 400 || response.status === 404) &&
     completed &&
     !isRenderDynamicLatched() &&
     !getActiveDraftModeState() &&
@@ -384,7 +385,7 @@ async function writeRenderedMetadataRoute(
   rendered: RenderedMetadataRoute,
   previousEntry: ISRCacheEntry | null,
 ): Promise<void> {
-  if (!options.isrSet || !rendered.response.ok || !rendered.cacheable) {
+  if (!options.isrSet || !rendered.cacheable) {
     return;
   }
   const previousCacheControl = previousEntry?.value.cacheControl;
@@ -839,7 +840,6 @@ async function writeMetadataRouteMiss(
   if (
     process.env.VINEXT_PRERENDER === "1" ||
     !isOuterMetadataCacheEnabled() ||
-    !rendered.response.ok ||
     !rendered.cacheable ||
     !options.isrRouteKey ||
     !options.isrSet

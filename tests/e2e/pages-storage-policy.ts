@@ -25,7 +25,7 @@ export function testPagesStoragePolicies(fallbackBaseURL?: string): void {
       request,
       page,
     }) => {
-      test.setTimeout(45_000);
+      test.setTimeout(90_000);
       const base = baseURL ?? fallbackBaseURL;
       test.skip(
         process.env.VINEXT_E2E_CACHE_BACKEND === "workers-cache" && !base?.startsWith("https://"),
@@ -44,33 +44,65 @@ export function testPagesStoragePolicies(fallbackBaseURL?: string): void {
         return {
           renderId: data.props.pageProps.renderId as string,
           buildId: data.buildId as string,
+          hit: [
+            response.headers()["x-vinext-cache"],
+            response.headers()["cf-cache-status"],
+          ].includes("HIT"),
         };
       };
       const first = await read();
       const dataURL = `${base}/_next/data/${first.buildId}/storage-policy/${scenario}.json`;
       const readData = async () => {
-        const dataResponse = await request.get(dataURL);
-        expect(dataResponse.status()).toBe(200);
-        return (await dataResponse.json()).pageProps.renderId as string;
+        const response = await request.get(dataURL);
+        expect(response.status()).toBe(200);
+        // Next's raw data URL does not match the GSP config-header sources.
+        // GSSP sets its header from user code for both representations.
+        if (scenario === "gssp") expect(response.headers()["cache-control"]).toBe(policy);
+        return {
+          renderId: (await response.json()).pageProps.renderId as string,
+          hit: [
+            response.headers()["x-vinext-cache"],
+            response.headers()["cf-cache-status"],
+          ].includes("HIT"),
+        };
       };
-      const dataId = await readData();
-      if (scenario === "gssp") {
-        expect((await read()).renderId).not.toBe(first.renderId);
-        expect(await readData()).not.toBe(dataId);
-      } else {
-        expect((await read()).renderId).toBe(first.renderId);
-        expect(await readData()).toBe(dataId);
-        await new Promise((resolve) => setTimeout(resolve, 3200));
-        if (scenario === "long-browser") {
-          await expect
-            .poll(async () => (await read()).renderId, { timeout: 15000 })
-            .not.toBe(first.renderId);
-          await expect.poll(readData, { timeout: 15000 }).not.toBe(dataId);
+      for (const readRepresentation of [read, readData]) {
+        const prior = await readRepresentation();
+        if (scenario === "gssp") {
+          expect((await readRepresentation()).renderId).not.toBe(prior.renderId);
+          continue;
+        }
+        // Test HTML and data independently. Warming may have happened more
+        // than 60 seconds ago, so retry a window that crosses a legitimate
+        // stale/regeneration boundary. A one-second backing TTL cannot pass
+        // the full 3.2-second HIT-to-HIT window with the same generation.
+        if (scenario !== "long-browser") {
+          await expect(async () => {
+            const anchor = await readRepresentation();
+            expect(anchor.hit).toBe(true);
+            await new Promise((resolve) => setTimeout(resolve, 3200));
+            const retained = await readRepresentation();
+            expect(retained.hit).toBe(true);
+            expect(retained.renderId).toBe(anchor.renderId);
+          }).toPass({ timeout: 20000, intervals: [100, 250, 500, 1000] });
         } else {
-          expect((await read()).renderId).toBe(first.renderId);
-          expect(await readData()).toBe(dataId);
+          let anchor = prior;
+          await expect
+            .poll(
+              async () => {
+                anchor = await readRepresentation();
+                return anchor.hit;
+              },
+              { timeout: 15000 },
+            )
+            .toBe(true);
+          await new Promise((resolve) => setTimeout(resolve, 3200));
+          await expect
+            .poll(async () => (await readRepresentation()).renderId, { timeout: 15000 })
+            .not.toBe(anchor.renderId);
         }
       }
+
       const browserResponse = await page.goto(url);
       expect(browserResponse?.headers()["cache-control"]).toBe(policy);
       await expect(page.getByTestId("storage-render-id")).toHaveText(/^[a-f0-9-]{36}$/);

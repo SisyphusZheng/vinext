@@ -148,6 +148,19 @@ describe("app route handler response helpers", () => {
     await expect(staleHead.text()).resolves.toBe("");
   });
 
+  it.each([204, 205, 304])("replays cached status %s without a body", async (status) => {
+    const cachedValue = { ...buildCachedRouteValue(""), status };
+    const response = buildRouteHandlerCachedResponse(cachedValue, {
+      cacheState: "HIT",
+      isHead: false,
+      revalidateSeconds: 60,
+    });
+    expect(response.status).toBe(status);
+    expect(response.body).toBeNull();
+    expect(response.headers.get("x-vinext-cache")).toBe("HIT");
+    await expect(response.text()).resolves.toBe("");
+  });
+
   it("prefers stored cache-control metadata over caller defaults", () => {
     const cachedValue = buildCachedRouteValue("from-cache");
 
