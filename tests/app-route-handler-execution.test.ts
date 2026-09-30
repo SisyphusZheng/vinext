@@ -933,6 +933,76 @@ describe("app route handler execution helpers", () => {
     ).resolves.toHaveProperty("explicitResponseCachePolicy", true);
   });
 
+  // Initial errors are dynamic in Next; an existing ISR entry is handled by the
+  // separate regeneration path (covered in app-route-handler-cache.test.ts).
+  // https://github.com/vercel/next.js/blob/v16.2.7/packages/next/src/export/routes/app-route.ts
+  it.each([400, 500])("does not initially store a status %s route", async (status) => {
+    for (const revalidateSeconds of [2, Infinity]) {
+      const writes = vi.fn();
+      const request = new Request("https://example.com/api/mixed-methods");
+      const context = createWorkerCacheabilityAdmissionContext(
+        { waitUntil() {} },
+        request,
+        JSON.stringify({ buildId: "build-a", routes: {}, version: 1 }),
+        "build-a",
+        true,
+      );
+      const state = Reflect.get(context, CACHEABILITY_REQUEST_STATE) as RouteCacheabilityState;
+      state.route = { kind: "app-route", pattern: "/api/mixed-methods" };
+      const dynamicUsage = createDynamicUsageState();
+
+      await runWithExecutionContext(context, () =>
+        executeAppRouteHandler({
+          buildPageCacheTags() {
+            return [];
+          },
+          cleanPathname: "/api/mixed-methods",
+          clearRequestContext() {},
+          consumeDynamicUsage: dynamicUsage.consumeDynamicUsage,
+          executionContext: null,
+          getAndClearPendingCookies() {
+            return [];
+          },
+          getCollectedFetchTags() {
+            return [];
+          },
+          getDraftModeCookieHeader() {
+            return null;
+          },
+          handler: {
+            dynamic: "auto",
+            revalidate: revalidateSeconds === Infinity ? false : revalidateSeconds,
+          },
+          handlerFn() {
+            return new Response("initial error", {
+              status,
+              headers: { "Cache-Control": "private, max-age=300" },
+            });
+          },
+          isAutoHead: false,
+          isProduction: true,
+          isrRouteKey(pathname) {
+            return pathname;
+          },
+          isrSet: writes,
+          markDynamicUsage: dynamicUsage.markDynamicUsage,
+          method: "GET",
+          middlewareContext: { headers: null, status: null },
+          params: null,
+          reportRequestError() {},
+          request,
+          revalidateSeconds,
+          routePattern: "/api/mixed-methods",
+          setHeadersAccessPhase() {
+            return "render";
+          },
+        }),
+      );
+      expect(state.outcome?.cacheable).toBe(false);
+      expect(writes).not.toHaveBeenCalled();
+    }
+  });
+
   it("falls back to private streaming and defers cleanup when completion times out", async () => {
     const request = new Request("https://example.com/api/large", {
       headers: { Accept: "*/*" },

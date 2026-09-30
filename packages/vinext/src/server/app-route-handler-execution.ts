@@ -239,6 +239,8 @@ type ExecuteAppRouteHandlerOptions = {
   initialDraftModeCookie?: string | null;
   isDraftMode?: boolean;
   isProduction: boolean;
+  /** An existing entry may require foreground regeneration after hard expiry. */
+  isRevalidation?: boolean;
   isrDebug?: AppRouteDebugLogger;
   isrRouteKey: (pathname: string) => string;
   isrSet: RouteHandlerCacheSetter;
@@ -470,6 +472,7 @@ async function executeAppRouteHandlerImpl(
     // Next.js stores ISR metadata separately from the handler's response headers.
     // A browser policy cannot opt a dynamic route into ISR or change its lifetime.
     const frameworkCacheable =
+      (options.isRevalidation === true || response.status < 400 || response.status === 404) &&
       options.revalidateSeconds !== null &&
       options.revalidateSeconds > 0 &&
       !responseMustStayPrivate &&
@@ -517,6 +520,7 @@ async function executeAppRouteHandlerImpl(
     }
 
     if (
+      frameworkCacheable &&
       shouldWriteAppRouteHandlerCache({
         dynamicConfig: options.handler.dynamic,
         dynamicUsedInHandler:

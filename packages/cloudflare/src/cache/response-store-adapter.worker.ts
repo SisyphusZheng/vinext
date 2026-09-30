@@ -339,7 +339,7 @@ function isCacheable(response: Response): boolean {
     response.headers.get("Cache-Control");
   return (
     response.status >= 200 &&
-    response.status < 400 &&
+    (response.status < 400 || response.status === 404) &&
     policy !== null &&
     !isNonCacheableCacheControl(policy)
   );
@@ -348,10 +348,15 @@ function isCacheable(response: Response): boolean {
 async function readStoredResponse(key: Request): Promise<Response | null> {
   try {
     const response = await responseStore.fetch(key);
-    // Redirects are valid cached responses even though Response.ok is false.
-    if (response.status >= 200 && response.status < 400) return response;
+    // The backend's marker distinguishes a stored 404 from its 404 cache miss.
+    const storeStatus = response.headers.get("X-Workers-Response-Store");
+    if (
+      (response.status >= 200 && response.status < 400) ||
+      (response.status === 404 && (storeStatus === "BLOB-FRESH" || storeStatus === "BLOB-STALE"))
+    )
+      return response;
     void response.body?.cancel().catch(() => {});
-    if (response.status === 404 && response.headers.get("X-Workers-Response-Store") === "MISS") {
+    if (response.status === 404 && storeStatus === "MISS") {
       return null;
     }
     throw new Error(`Workers Response Store returned ${response.status}`);

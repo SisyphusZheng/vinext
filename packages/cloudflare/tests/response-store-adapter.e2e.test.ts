@@ -160,6 +160,33 @@ afterEach(async () => {
 });
 
 describe("Cloudflare Workers Response Store adapter", () => {
+  test("stores an admitted metadata 404 as a response entry and replays its status", async () => {
+    const pathname = "/metadata-storage/status-404/opengraph-image";
+    const first = await request(pathname);
+    assert.equal(first.status, 404, await first.clone().text());
+    assert.equal(first.headers.get("cache-control"), "private, max-age=300");
+    assert.equal(first.headers.get("x-vinext-cache"), "MISS");
+    const renderId = first.headers.get("x-render-id");
+    await first.arrayBuffer();
+    // Require a real response entry and R2 body; an inner ISR hit is insufficient.
+    await waitForResponseEntries(pathname, 1);
+    const hit = await request(pathname);
+    assert.equal(hit.status, 404);
+    assert.equal(hit.headers.get("x-vinext-cache"), "HIT");
+    assert.equal(hit.headers.get("cache-control"), "private, max-age=300");
+    assert.equal(hit.headers.get("x-render-id"), renderId);
+    await hit.arrayBuffer();
+    const head = await request(pathname, { method: "HEAD" });
+    assert.equal(head.status, 404);
+    assert.equal(await head.text(), "");
+    // Response Store keys GET and HEAD invocations separately.
+    await waitForResponseEntries(pathname, 2);
+    const headHit = await request(pathname, { method: "HEAD" });
+    assert.equal(headHit.status, 404);
+    assert.equal(headHit.headers.get("x-vinext-cache"), "HIT");
+    assert.equal(await headHit.text(), "");
+  });
+
   test("builds both deployment modes with their configured metadata location hints", async () => {
     const serviceBinding = (await modules(appOutput, "index.js"))
       .map(({ contents }) => contents)

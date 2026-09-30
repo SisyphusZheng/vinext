@@ -226,6 +226,26 @@ describe("app route handler cache helpers", () => {
     expect(didClearRequestContext).toBe(true);
   });
 
+  // Next caches error responses produced after a successful initial prerender.
+  // https://github.com/vercel/next.js/blob/v16.2.7/packages/next/src/build/templates/app-route.ts
+  it.each([400, 500])("stores status %s during existing route ISR regeneration", async (status) => {
+    const writes = vi.fn();
+    let regenerate: (() => Promise<void>) | undefined;
+    await readAppRouteHandlerCacheResponse(
+      createReadOptions({
+        isrGet: async () => buildISRCacheEntry(buildCachedRouteValue("original"), true),
+        handlerFn: () => new Response("regenerated error", { status }),
+        isrSet: writes,
+        scheduleBackgroundRegeneration: (_key, render) => {
+          regenerate = render;
+        },
+      }),
+    );
+    await regenerate!();
+    expect(writes).toHaveBeenCalledOnce();
+    expect(writes.mock.calls[0][1].status).toBe(status);
+  });
+
   it("does not store a regeneration that reads request data while streaming", async () => {
     const usage = createDynamicUsageState();
     const writes = vi.fn();

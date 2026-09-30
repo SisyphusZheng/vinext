@@ -5,6 +5,27 @@ import { expect, test } from "@playwright/test";
 // https://github.com/vercel/next.js/blob/v16.2.7/test/e2e/app-dir/app-routes/app-custom-routes.test.ts
 // Reproduced against next@16.2.7 build/start; these fixtures set no provider headers.
 export function testRouteHandlerStoragePolicies(): void {
+  // Initially failing routes are dynamic in Next even with route revalidation.
+  for (const status of [400, 500]) {
+    test(`initial route status ${status} does not enter framework storage`, async ({
+      baseURL,
+      request,
+    }) => {
+      const url = `${baseURL}/api/storage-policy/status-${status}`;
+      const read = async () => {
+        const response = await request.get(url);
+        expect(response.status()).toBe(status);
+        expect(response.headers()["cache-control"]).toBe("private, max-age=300");
+        expect(response.headers()["x-vinext-cache"]).not.toBe("HIT");
+        return (await response.json()).renderId as string;
+      };
+      expect(await read()).not.toBe(await read());
+      const head = await request.head(url);
+      expect(head.status()).toBe(status);
+      expect(head.headers()["cache-control"]).toBe("private, max-age=300");
+      expect(await head.body()).toHaveLength(0);
+    });
+  }
   // Next caches static metadata redirects and 404s, including their status.
   // https://github.com/vercel/next.js/blob/v16.2.7/packages/next/src/export/routes/app-route.ts
   for (const status of [307, 404]) {

@@ -296,6 +296,51 @@ describe("Cloudflare Response Store Worker", () => {
     expect(store.put).toHaveBeenCalledOnce();
   });
 
+  it.each(["BLOB-FRESH", "BLOB-STALE", "MISS"])(
+    "distinguishes a stored 404 from a 404 %s lookup",
+    async (marker) => {
+      const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+      const store = {
+        fetch: vi.fn(
+          async () =>
+            new Response("stored not found", {
+              status: 404,
+              headers: {
+                "X-Workers-Response-Store": marker,
+                "Cache-Control": "private, max-age=300",
+              },
+            }),
+        ),
+        getTagExpiration: vi.fn(),
+        purge: vi.fn(),
+        put: vi.fn(),
+        refresh: vi.fn(),
+      };
+      stages.response.mockResolvedValue(
+        new Response("rendered not found", {
+          status: 404,
+          headers: {
+            "Cache-Control": "private, max-age=300",
+            "Cloudflare-CDN-Cache-Control": "public, max-age=60",
+          },
+        }),
+      );
+      const response = await createVinextResponseStoreHandler(store).fetch(
+        new Request("https://example.com/metadata-404"),
+        {} as never,
+        { passThroughOnException: vi.fn(), waitUntil: vi.fn() },
+      );
+      const miss = marker === "MISS";
+      expect(response.status).toBe(404);
+      expect(response.headers.get("X-Vinext-Cache")).toBe(miss ? "MISS" : "HIT");
+      expect(response.headers.get("Cache-Control")).toBe("private, max-age=300");
+      expect(await response.text()).toBe(miss ? "rendered not found" : "stored not found");
+      expect(stages.response).toHaveBeenCalledTimes(miss ? 1 : 0);
+      expect(store.put).toHaveBeenCalledTimes(miss ? 1 : 0);
+      expect(errorLog).not.toHaveBeenCalled();
+    },
+  );
+
   it.each([301, 302, 307, 308])("preserves a cached %s redirect", async (status) => {
     const store = {
       fetch: vi.fn(async () => new Response(null, { status, headers: { Location: "/target" } })),
