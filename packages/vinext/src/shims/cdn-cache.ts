@@ -271,7 +271,7 @@ export class DefaultCdnCacheAdapter implements CdnCacheAdapter {
       // data cache instead.
       return { "Cache-Control": PENDING_DYNAMIC_CACHE_CONTROL };
     }
-    return { "Cache-Control": input.cacheControl };
+    return { "Cache-Control": input.browserCacheControl ?? input.cacheControl };
   }
 
   buildResponseIdentityHeaders(): CdnResponseHeaders {

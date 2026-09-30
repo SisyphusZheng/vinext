@@ -1,3 +1,5 @@
+import { testPagesStoragePolicies } from "../pages-storage-policy";
+import { testRouteHandlerStoragePolicies } from "../route-handler-storage-policy";
 import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import { waitForStablePromotion } from "./promotion.js";
@@ -40,7 +42,7 @@ for (const [policy, expected] of Object.entries(browserPolicies)) {
   test(`preserves Next.js browser cache policy: ${policy}`, async ({ baseURL, request }) => {
     test.skip(!baseURL || !backend, "requires a configured response-store-demo backend");
     if (!baseURL) throw new Error("test requires a base URL");
-    const mayStore = !["no-store", "private-only", "edge-no-store"].includes(policy);
+    const mayStore = !["no-store", "private-only", "edge-no-store", "shared"].includes(policy);
     function expectPolicy(headers: Record<string, string>) {
       expect(headers["cache-control"], JSON.stringify(headers)).toBe(expected);
       if (!mayStore) expect(headers[cacheStatusHeader]).not.toBe("HIT");
@@ -446,3 +448,8 @@ test("Workers Cache serves every query of a static page from one entry", async (
     (body) => /search-suspense-render-id[^>]*>([^<]+)</.exec(body)?.[1],
   );
 });
+
+if (backend) {
+  testRouteHandlerStoragePolicies();
+  testPagesStoragePolicies();
+}

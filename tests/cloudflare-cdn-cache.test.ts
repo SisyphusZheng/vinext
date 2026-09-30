@@ -404,6 +404,7 @@ describe("CloudflareCdnCacheAdapter", () => {
       async (context) => {
         const state = Reflect.get(context, CACHEABILITY_REQUEST_STATE) as RouteCacheabilityState;
         state.route = { kind: "pages-page", pattern: "/posts" };
+        state.outcome = { cacheable: true, cacheControl: "s-maxage=60", tags: ["posts"] };
         const headers = new Headers();
         await runWithExecutionContext(context, () =>
           applyCdnResponseHeaders(headers, {

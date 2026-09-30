@@ -1,4 +1,9 @@
-import { describe, expect, it } from "vite-plus/test";
+import {
+  headers,
+  draftMode,
+  getDraftModeCookieHeader,
+} from "../packages/vinext/src/shims/headers.js";
+import { describe, expect, it, vi } from "vite-plus/test";
 import {
   getPrerenderableMetadataRoutePaths,
   handleMetadataRouteRequest,
@@ -430,7 +435,7 @@ describe("handleMetadataRouteRequest", () => {
   });
 
   for (const cacheControl of ["no-store", "no-cache"]) {
-    it(`does not admit runtime metadata responses with Cache-Control: ${cacheControl}`, async () => {
+    it(`stores static metadata independently of browser Cache-Control: ${cacheControl}`, async () => {
       let outerWrites = 0;
       const response = await handleMetadataRouteRequest({
         cleanPathname: "/icon",
@@ -465,7 +470,7 @@ describe("handleMetadataRouteRequest", () => {
 
       expect(response?.headers.get("cache-control")).toBe(cacheControl);
       expect(await response?.text()).toBe("dynamic image");
-      expect(outerWrites).toBe(0);
+      expect(outerWrites).toBe(1);
     });
   }
 
@@ -522,6 +527,7 @@ describe("handleMetadataRouteRequest", () => {
     }> = [];
     const defaultExport = markUseCache(async () => {
       metadataCalls++;
+      _setRequestScopedCacheLife({ revalidate: 60, expire: 300, stale: 30 });
       addCollectedRequestTags(["metadata-user-tag"]);
       return { rules: { userAgent: "*", allow: "/regenerated" } };
     });
@@ -1122,7 +1128,10 @@ describe("metadata route cacheability registration", () => {
       true,
     );
     const response = await runWithRequestContext(
-      createRequestContext({ executionContext: context }),
+      createRequestContext({
+        executionContext: context,
+        headersContext: { headers: new Headers({ "x-visitor": "alice" }), cookies: new Map() },
+      }),
       () =>
         handleMetadataRouteRequest({
           cleanPathname,
@@ -1150,6 +1159,214 @@ describe("metadata route cacheability registration", () => {
       module: { default: response },
     };
   }
+
+  it.each(["auto", "force-static"])(
+    "observes late metadata request reads in %s mode",
+    async (dynamic) => {
+      const route = dynamicImageRoute(
+        () =>
+          new Response(
+            new ReadableStream({
+              async pull(controller) {
+                const visitor = (await headers()).get("x-visitor") ?? "anonymous";
+                controller.enqueue(new TextEncoder().encode(visitor));
+                controller.close();
+              },
+            }),
+            { headers: { "Cache-Control": "private, max-age=300" } },
+          ),
+      );
+      route.module!.dynamic = dynamic;
+      const writes = vi.fn();
+      const { response, state } = await runWithRequestContext(
+        createRequestContext({
+          headersContext: { headers: new Headers({ "x-visitor": "alice" }), cookies: new Map() },
+        }),
+        () =>
+          handleWithAdmission("/event/london/42/opengraph-image", [route], {
+            isrGet: async () => null,
+            isrSet: writes,
+            isrRouteKey: (path) => path,
+          }),
+      );
+      expect(state.outcome?.cacheable).toBe(dynamic === "force-static");
+      expect(writes).toHaveBeenCalledTimes(dynamic === "force-static" ? 1 : 0);
+      await expect(response?.text()).resolves.toBe(
+        dynamic === "force-static" ? "anonymous" : "alice",
+      );
+    },
+  );
+
+  it("does not read or write metadata ISR in draft mode", async () => {
+    const read = vi.fn(async () => null);
+    const write = vi.fn();
+    const response = await runWithRequestContext(
+      createRequestContext({
+        headersContext: { headers: new Headers(), cookies: new Map(), draftModeEnabled: true },
+      }),
+      () =>
+        handleMetadataRouteRequest({
+          cleanPathname: "/event/london/42/opengraph-image",
+          makeThenableParams,
+          metadataRoutes: [
+            dynamicImageRoute(
+              () => new Response("draft", { headers: { "Cache-Control": "public, max-age=300" } }),
+            ),
+          ],
+          isrGet: read,
+          isrSet: write,
+          isrRouteKey: (path) => path,
+        }),
+    );
+    await expect(response?.text()).resolves.toBe("draft");
+    expect(read).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("preserves cookie-derived draft mode under force-static metadata", async () => {
+    const read = vi.fn(async () => null);
+    const write = vi.fn();
+    const route = dynamicImageRoute(() => new Response("draft"));
+    route.module!.dynamic = "force-static";
+    const response = await runWithRequestContext(
+      createRequestContext({
+        headersContext: {
+          headers: new Headers(),
+          get cookies() {
+            return new Map([["__prerender_bypass", "secret"]]);
+          },
+          draftModeSecret: "secret",
+        },
+      }),
+      () =>
+        handleMetadataRouteRequest({
+          cleanPathname: "/event/london/42/opengraph-image",
+          makeThenableParams,
+          metadataRoutes: [route],
+          isrGet: read,
+          isrSet: write,
+          isrRouteKey: (path) => path,
+        }),
+    );
+    await expect(response?.text()).resolves.toBe("draft");
+    expect(read).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it.each(["before", "body"])(
+    "preserves a draft disable cookie set %s metadata rendering",
+    async (when) => {
+      const read = vi.fn(async () => null);
+      const write = vi.fn();
+      await runWithRequestContext(
+        createRequestContext({
+          headersContext: {
+            headers: new Headers(),
+            cookies: new Map(),
+            draftModeEnabled: true,
+            draftModeSecret: "secret",
+          },
+        }),
+        async () => {
+          if (when === "before") (await draftMode()).disable();
+          const response = await handleMetadataRouteRequest({
+            cleanPathname: "/event/london/42/opengraph-image",
+            makeThenableParams,
+            metadataRoutes: [
+              dynamicImageRoute(
+                () =>
+                  new Response(
+                    new ReadableStream({
+                      async pull(controller) {
+                        if (when === "body") (await draftMode()).disable();
+                        controller.enqueue(new TextEncoder().encode("disabled"));
+                        controller.close();
+                      },
+                    }),
+                  ),
+              ),
+            ],
+            isrGet: read,
+            isrSet: write,
+            isrRouteKey: (path) => path,
+          });
+          await expect(response?.text()).resolves.toBe("disabled");
+          expect(getDraftModeCookieHeader()).toContain("__prerender_bypass=");
+        },
+      );
+      expect(read).not.toHaveBeenCalled();
+      expect(write).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not write metadata ISR after a handler enables draft mode", async () => {
+    const write = vi.fn();
+    const route = dynamicImageRoute(
+      () =>
+        new Response(
+          new ReadableStream({
+            async pull(controller) {
+              (await draftMode()).enable();
+              controller.enqueue(new TextEncoder().encode("draft"));
+              controller.close();
+            },
+          }),
+          { headers: { "Cache-Control": "no-store" } },
+        ),
+    );
+    const response = await runWithRequestContext(
+      createRequestContext({
+        headersContext: {
+          headers: new Headers(),
+          cookies: new Map(),
+          draftModeEnabled: false,
+          draftModeSecret: "secret",
+        },
+      }),
+      () =>
+        handleMetadataRouteRequest({
+          cleanPathname: "/event/london/42/opengraph-image",
+          makeThenableParams,
+          metadataRoutes: [route],
+          isrGet: async () => null,
+          isrSet: write,
+          isrRouteKey: (path) => path,
+        }),
+    );
+    await expect(response?.text()).resolves.toBe("draft");
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it.each([0, 1, 60])(
+    "caps metadata cacheLife %s by the route's revalidate",
+    async (revalidate) => {
+      const write = vi.fn();
+      const route = dynamicImageRoute(() => {
+        _setRequestScopedCacheLife({ revalidate, expire: 300 });
+        return new Response("image", { headers: { "Cache-Control": "public, max-age=3600" } });
+      });
+      route.module!.revalidate = 2;
+      const { response, state } = await handleWithAdmission(
+        "/event/london/42/opengraph-image",
+        [route],
+        {
+          isrGet: async () => null,
+          isrSet: write,
+          isrRouteKey: (path) => path,
+        },
+      );
+      expect(state.outcome?.cacheable).toBe(revalidate > 0);
+      if (revalidate > 0) {
+        expect(write.mock.calls[0]?.[2].cacheControl).toEqual({
+          revalidate: Math.min(2, revalidate),
+          expire: 300,
+        });
+        expect(state.outcome?.cacheControl).toContain(`s-maxage=${Math.min(2, revalidate)}`);
+        expect(state.outcome?.tags).toContain("_N_T_/event/london/42/opengraph-image");
+      } else expect(write).not.toHaveBeenCalled();
+      await response?.body?.cancel();
+    },
+  );
 
   it("registers the route pattern rather than the concrete path", async () => {
     const { state } = await handleWithAdmission("/event/london/42/opengraph-image", [

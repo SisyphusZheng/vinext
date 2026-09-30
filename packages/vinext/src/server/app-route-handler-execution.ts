@@ -16,7 +16,8 @@ import {
   hasExplicitNonCacheableResponsePolicy,
   NEVER_CACHE_CONTROL,
 } from "./cache-control.js";
-import { isrCacheControl, type IsrWritePolicy } from "./isr-cache.js";
+import { buildAppRouteMissIsrCacheControl } from "./isr-decision.js";
+import { isrCacheControl, resolveRouteExpireSeconds, type IsrWritePolicy } from "./isr-cache.js";
 import {
   createStaticGenerationHeadersContext,
   getAppRouteStaticGenerationErrorMessage,
@@ -49,6 +50,7 @@ import {
   isRouteCacheabilityEvaluation,
   markRouteCacheabilityExplicitResponsePolicy,
   markRouteCacheabilityResponseBodyComplete,
+  recordRouteCacheability,
 } from "vinext/shims/cacheability-classification";
 import {
   CACHEABILITY_ADMISSION_RESPONSE_BODY_LIMIT,
@@ -128,7 +130,7 @@ function hasExplicitCacheableResponsePolicy(headers: Headers): boolean {
   return !hasExplicitNonCacheableResponsePolicy(headers) && hasCdnResponsePolicy(headers);
 }
 
-async function completeAppRouteHandlerResponse(
+export async function completeAppRouteHandlerResponse(
   response: Response,
 ): Promise<CompletedAppRouteHandlerResponse> {
   // Match Next.js static App Route generation: resolve only after clean EOF,
@@ -392,6 +394,7 @@ async function executeAppRouteHandlerImpl(
     const handlerResult = tracedResult.handlerResult;
     let { dynamicUsedInHandler, response } = handlerResult;
     assertSupportedAppRouteHandlerResponse(response);
+    const browserCacheControl = response.headers.get("Cache-Control") ?? undefined;
     const handlerSetCachePolicy = hasCdnResponsePolicy(response.headers);
     const hasExplicitCacheablePolicy = hasExplicitCacheableResponsePolicy(response.headers);
     if (handlerSetCachePolicy) {
@@ -460,6 +463,33 @@ async function executeAppRouteHandlerImpl(
       options.getCollectedFetchTags(),
     );
 
+    // Next.js stores ISR metadata separately from the handler's response headers.
+    // A browser policy cannot opt a dynamic route into ISR or change its lifetime.
+    const frameworkCacheable =
+      options.revalidateSeconds !== null &&
+      options.revalidateSeconds > 0 &&
+      !responseMustStayPrivate &&
+      !shouldApplyDraftPolicy &&
+      pendingCookies.length === 0 &&
+      !response.headers.has("set-cookie") &&
+      (options.method === "GET" || options.isAutoHead);
+    recordRouteCacheability(
+      frameworkCacheable
+        ? {
+            cacheable: true,
+            cacheControl: buildAppRouteMissIsrCacheControl(
+              options.revalidateSeconds!,
+              options.expireSeconds,
+            ),
+            tags: routeTags,
+          }
+        : {
+            cacheable: false,
+            dynamicUsage:
+              responseMustStayPrivate || shouldApplyDraftPolicy || options.revalidateSeconds === 0,
+          },
+    );
+
     if (
       shouldApplyAppRouteHandlerRevalidateHeader({
         dynamicUsedInHandler: responseMustStayPrivate,
@@ -485,7 +515,10 @@ async function executeAppRouteHandlerImpl(
     if (
       shouldWriteAppRouteHandlerCache({
         dynamicConfig: options.handler.dynamic,
-        dynamicUsedInHandler: responseMustStayPrivate,
+        dynamicUsedInHandler:
+          responseMustStayPrivate ||
+          pendingCookies.length > 0 ||
+          response.headers.has("set-cookie"),
         handlerSetCachePolicy,
         isAutoHead: options.isAutoHead,
         isDraftMode: shouldApplyDraftPolicy,
@@ -503,11 +536,17 @@ async function executeAppRouteHandlerImpl(
       }
       const routeWritePromise = (async () => {
         try {
-          const routeCacheValue = await buildAppRouteCacheValue(routeClone);
+          const routeCacheValue = await buildAppRouteCacheValue(routeClone, browserCacheControl);
           await options.isrSet(routeKey, routeCacheValue, {
-            cacheControl: isrCacheControl(revalidateSeconds, {
-              expireSeconds: options.expireSeconds,
-            }),
+            cacheControl: isrCacheControl(
+              revalidateSeconds === Infinity ? false : revalidateSeconds,
+              {
+                expireSeconds: resolveRouteExpireSeconds(
+                  options.revalidateSeconds,
+                  options.expireSeconds,
+                ),
+              },
+            ),
             tags: routeTags,
           });
           options.isrDebug?.("route cache written", routeKey);

@@ -75,7 +75,7 @@ test("admits pattern-backed App responses only after each clean EOF", async ({ r
     headers: { Accept: "text/html" },
   });
   expect(configPublicDynamic.status()).toBe(200);
-  expectGatewayCachePolicy(configPublicDynamic);
+  expectGatewayCachePolicy(configPublicDynamic, "s-maxage=32");
 
   const configPrivateDynamic = await request.get("/cacheability/config-public-dynamic?preview=1", {
     headers: { Accept: "text/html" },
@@ -95,14 +95,14 @@ test("admits pattern-backed App responses only after each clean EOF", async ({ r
     headers: { Accept: "text/html" },
   });
   expect(publicConfigPattern.status()).toBe(200);
-  expectGatewayCachePolicy(publicConfigPattern);
+  expectGatewayCachePolicy(publicConfigPattern, "s-maxage=33");
 
   const publicConfigRepresentation = await request.get(
     "/cacheability/config-public-representation",
     { headers: { Accept: "text/html" } },
   );
   expect(publicConfigRepresentation.status()).toBe(200);
-  expectGatewayCachePolicy(publicConfigRepresentation);
+  expectGatewayCachePolicy(publicConfigRepresentation, "s-maxage=34");
 
   const privateConfigRepresentation = await request.get(
     "/cacheability/config-public-representation?_rsc",
@@ -226,15 +226,15 @@ test("admits pattern-backed App responses only after each clean EOF", async ({ r
 
   // Next.js does not statically generate a GET+POST Route Handler, so this
   // route is intentionally absent from the probe manifest. Its handler-owned
-  // public policy still opts the completed response into runtime admission.
+  // public policy remains a browser header; it does not grant shared admission.
   const explicitMixedRouteHandler = await request.get("/cacheability/route-handler-mixed-explicit");
   await expect(explicitMixedRouteHandler.json()).resolves.toEqual({
     kind: "explicit-mixed-route-handler",
   });
   expectGatewayCachePolicy(explicitMixedRouteHandler, "public, s-maxage=60");
 
-  // Next.js compiles metadata files into Route Handlers, so a dynamic image's
-  // own public policy opts it into runtime admission the same way.
+  // Next.js compiles metadata files into Route Handlers. Static metadata may
+  // be stored, while its authored browser policy remains independent.
   const explicitMetadataRoute = await request.get(
     "/cacheability/metadata-route-explicit/london/opengraph-image",
   );
@@ -274,6 +274,9 @@ test("admits pattern-backed App responses only after each clean EOF", async ({ r
   });
   expectGatewayCachePolicy(explicitDynamicRouteHandler, "public, s-maxage=60");
 
+  // The embedded manifest selected this candidate for completed admission.
+  // vinext retains its 500-on-failed-EOF contract even though runtime storage
+  // is denied; Next 16.2.7 aborts the dynamic response connection instead.
   const lateConfigPublicFailure = await request.get(
     "/cacheability/route-handler-config-public-late-error",
   );

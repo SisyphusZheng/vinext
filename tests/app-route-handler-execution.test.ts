@@ -282,7 +282,7 @@ describe("app route handler execution helpers", () => {
         },
       },
       getAndClearPendingCookies() {
-        return ["session=1; Path=/"];
+        return [];
       },
       getCollectedFetchTags() {
         return ["tag:demo"];
@@ -340,7 +340,7 @@ describe("app route handler execution helpers", () => {
     expect(response.headers.get("cache-control")).toBe("s-maxage=60, stale-while-revalidate=240");
     expect(response.headers.get("x-vinext-cache")).toBe("MISS");
     expect(response.headers.get("x-middleware")).toBe("present");
-    expect(response.headers.getSetCookie?.()).toEqual(["session=1; Path=/"]);
+    expect(response.headers.getSetCookie?.()).toEqual([]);
     await expect(response.text()).resolves.toBe("ok");
     expect(isrSetCalls).toEqual([
       {

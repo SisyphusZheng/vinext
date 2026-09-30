@@ -37,6 +37,7 @@ import {
   STATIC_CACHE_CONTROL,
   applyCdnResponseHeaders,
   hasExplicitNonCacheableResponsePolicy,
+  hasCdnResponsePolicy,
   shouldUseNextDeployCacheControl,
 } from "./cache-control.js";
 import {
@@ -73,6 +74,7 @@ import {
   isRouteCacheabilityIdentityProbe,
   isRouteCacheabilityProbe,
   recordRouteCacheability,
+  markRouteCacheabilityExplicitResponsePolicy,
 } from "vinext/shims/cacheability-classification";
 import { collectAssetTags, resolveClientModuleUrl } from "./pages-asset-tags.js";
 import {
@@ -191,6 +193,14 @@ function applyPagesErrorCachePolicy(
   cacheTagPathname: string,
 ): Response {
   const headers = new Headers(response.headers);
+  recordRouteCacheability(
+    revalidateSeconds === undefined
+      ? { cacheable: false }
+      : {
+          cacheable: revalidateSeconds !== 0,
+          cacheControl: buildMissIsrCacheControl(revalidateSeconds, expireSeconds),
+        },
+  );
   if (hasExplicitNonCacheableResponsePolicy(headers)) return response;
   // The source route's notFound lifetime controls the outgoing response, not
   // the inner error page's lifetime. Preview and nonce-bearing responses are
@@ -636,6 +646,8 @@ export function createPagesPageHandler(
         // ISR entry to copy policy from, so carry Next.js's static policy into
         // the probe/admission result explicitly.
         recordRouteCacheability({ cacheable: true, cacheControl: STATIC_CACHE_CONTROL });
+      } else {
+        recordRouteCacheability({ cacheable: false });
       }
     }
 
@@ -838,6 +850,15 @@ export function createPagesPageHandler(
           },
         };
         const scriptNonce = getScriptNonceFromHeaderSources(request.headers, middlewareHeaders);
+        const browserCacheControl =
+          isStaticPropsRoute && !scriptNonce
+            ? (initialResponseHeaders ?? middlewareHeaders)?.get("Cache-Control")
+            : null;
+        const withBrowserPolicy = (response: Response): Response => {
+          if (browserCacheControl) response.headers.set("Cache-Control", browserCacheControl);
+          return response;
+        };
+
         const shouldApplyErrorResponsePolicy =
           previewData === false &&
           !scriptNonce &&
@@ -1012,7 +1033,7 @@ export function createPagesPageHandler(
           } else if (pageDataResult.cacheState) {
             notFoundResponse = withPagesCacheState(notFoundResponse, pageDataResult.cacheState);
           }
-          return finalizePagesPreviewResponse(notFoundResponse, preview);
+          return finalizePagesPreviewResponse(withBrowserPolicy(notFoundResponse), preview);
         }
         if (pageDataResult.kind === "response") {
           let response =
@@ -1027,7 +1048,7 @@ export function createPagesPageHandler(
               errorResponseCachePathname,
             );
           }
-          return finalizePagesPreviewResponse(response, preview);
+          return finalizePagesPreviewResponse(withBrowserPolicy(response), preview);
         }
 
         let pageProps = pageDataResult.pageProps;
@@ -1050,6 +1071,18 @@ export function createPagesPageHandler(
         // getStaticProps `notFound` lifetime only controls the outgoing 404
         // response and must not shorten `/404`'s internal cache lifetime.
         const isrRevalidateSeconds = pageDataResult.isrRevalidateSeconds;
+        if (
+          isStaticPropsRoute &&
+          preview.data === false &&
+          !preview.shouldClear &&
+          isrRevalidateSeconds !== null
+        ) {
+          recordRouteCacheability({
+            cacheable: isrRevalidateSeconds !== 0,
+            cacheControl: buildMissIsrCacheControl(isrRevalidateSeconds, vinextConfig.expireTime),
+          });
+        }
+
         const isrExpireSeconds = pageDataResult.isrExpireSeconds;
         const isFallbackRender = pageDataResult.isFallback === true;
 
@@ -1085,6 +1118,7 @@ export function createPagesPageHandler(
               }
             }
           }
+          if (hasCdnResponsePolicy(headers)) markRouteCacheabilityExplicitResponsePolicy();
           if (gsspRes) {
             // Default Cache-Control for gSSP-driven _next/data responses —
             // skip when gSSP already set one via res.setHeader. Fixes #1461.
@@ -1119,7 +1153,9 @@ export function createPagesPageHandler(
             }
           }
           return finalizePagesPreviewResponse(
-            buildNextDataPropsJsonResponse(renderProps, safeJsonStringify, { headers }),
+            withBrowserPolicy(
+              buildNextDataPropsJsonResponse(renderProps, safeJsonStringify, { headers }),
+            ),
             preview,
           );
         }
@@ -1213,7 +1249,7 @@ export function createPagesPageHandler(
             errorResponseCachePathname,
           );
         }
-        return finalizePagesPreviewResponse(pageResponse, preview);
+        return finalizePagesPreviewResponse(withBrowserPolicy(pageResponse), preview);
       } catch (e) {
         console.error("[vinext] SSR error:", e);
         await reportRequestError(

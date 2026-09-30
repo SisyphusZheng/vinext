@@ -162,7 +162,7 @@ describe("app route handler dispatch", () => {
         });
 
         expect(response.status).toBe(500);
-        expect(isrGet).not.toHaveBeenCalled();
+        expect(isrGet).toHaveBeenCalledTimes(revalidate === false ? 1 : 0);
         expect(onRequestError.mock.calls[0]?.[2]).toEqual({
           routerKind: "App Router",
           routePath: "/api/uncached",

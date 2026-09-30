@@ -272,7 +272,7 @@ async function dispatchAppRouteHandlerImpl(
     options.request.headers.get(PRERENDER_REVALIDATE_HEADER),
   )
     ? "on-demand"
-    : shouldReadRouteCache
+    : shouldReadRouteCache && revalidateSeconds !== Infinity
       ? "stale"
       : undefined;
 

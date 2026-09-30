@@ -2347,10 +2347,18 @@ async function startPagesRouterServer(options: PagesRouterServerOptions) {
                 options?: PagesRenderOptions,
                 stagedHeaders?: Headers,
               ) =>
-                renderPage(request, resolvedUrl, ssrManifest, undefined, stagedHeaders, {
-                  ...options,
-                  originalUrl: originalRenderUrl,
-                })
+                renderPage(
+                  request,
+                  resolvedUrl,
+                  ssrManifest,
+                  undefined,
+                  stagedHeaders,
+                  {
+                    ...options,
+                    originalUrl: originalRenderUrl,
+                  },
+                  stagedHeaders,
+                )
             : null,
         handleApi:
           typeof handleApi === "function"

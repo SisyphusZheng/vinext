@@ -145,8 +145,8 @@ test.describe("Cloudflare route-handler draft-mode cache isolation", () => {
     expect(forged.status()).toBe(200);
     expect(await forged.json()).toMatchObject({ draftMode: false });
     // An invalid draft cookie cannot enable draft mode or shared storage.
-    // Its framework browser policy still requires revalidation.
-    expect(forged.headers()["cache-control"]).toBe("private, max-age=0, must-revalidate");
+    // The untrusted cookie also keeps the framework response out of browser storage.
+    expect(forged.headers()["cache-control"]).toBe("no-store, must-revalidate");
     expect(forged.headers()["cdn-cache-control"]).toBeUndefined();
     // Local workerd does not expose a Workers Cache status. Do not preserve
     // the inner ISR state as though it were a CF-Cache-Status mirror.
@@ -236,7 +236,7 @@ test.describe("Cloudflare route-handler draft-mode cache isolation", () => {
     }
   });
 
-  test("keeps hybrid Pages query rewrites private", async ({ request }) => {
+  test("preserves browser policy after a hybrid Pages query rewrite", async ({ request }) => {
     for (const visitor of ["alice", "bob"]) {
       const response = await request.get(
         `${BASE_URL}/api/browser-cache-pages-query?visitor=alice`,
@@ -245,9 +245,10 @@ test.describe("Cloudflare route-handler draft-mode cache isolation", () => {
         },
       );
       expect(response.status()).toBe(200);
+      // Keep vinext's existing query-rewrite isolation check. Next 16.2.7
+      // preserves the authored header here, but retains the original query.
       expect(await response.json()).toEqual({ visitor });
-      expect(response.headers()["cache-control"]).toMatch(/no-store|max-age=0/);
-      expect(response.headers()["cache-control"]).not.toContain("public");
+      expect(response.headers()["cache-control"]).toBe("public, max-age=300, s-maxage=600");
     }
   });
 

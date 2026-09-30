@@ -1,3 +1,4 @@
+import { testPagesStoragePolicies } from "../pages-storage-policy";
 import { test, expect } from "@playwright/test";
 import fs from "node:fs";
 
@@ -256,3 +257,5 @@ test.describe("Pages Router Production Build", () => {
 function decodeHtmlText(text: string): string {
   return text.replaceAll("&amp;", "&").replaceAll("&quot;", '"');
 }
+
+testPagesStoragePolicies(BASE);

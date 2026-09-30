@@ -1,3 +1,4 @@
+import { recordRouteCacheability } from "vinext/shims/cacheability-classification";
 import type { ReactNode } from "react";
 import type { VinextNextData } from "../client/vinext-next-data.js";
 import type { Route } from "../routing/pages-router.js";
@@ -490,6 +491,10 @@ function applyPagesTerminalMissHeaders(
   expireSeconds?: number,
 ): Response {
   const stem = isrCachePathname.endsWith("/") ? isrCachePathname.slice(0, -1) : isrCachePathname;
+  recordRouteCacheability({
+    cacheable: revalidateSeconds !== 0,
+    cacheControl: buildMissIsrCacheControl(revalidateSeconds, expireSeconds),
+  });
   applyCdnResponseHeaders(response.headers, {
     cacheControl: buildMissIsrCacheControl(revalidateSeconds, expireSeconds),
     tags: [encodeCacheTag(`_N_T_${stem || "/"}`)],
@@ -515,6 +520,7 @@ function applyCachedPagesRepresentationHeaders(
     expireSeconds: entry.cacheControl?.expire === undefined ? undefined : options.expireSeconds,
     cacheControlMeta: entry.cacheControl,
   });
+  recordRouteCacheability({ cacheable: true, cacheControl });
   applyCdnResponseHeaders(response.headers, { cacheControl });
   for (const [name, value] of Object.entries(buildCacheStateHeaders(cacheState))) {
     response.headers.set(name, value);
@@ -992,6 +998,7 @@ function buildPagesCacheResponse(
     "Content-Type": "text/html; charset=utf-8",
     ...buildCacheStateHeaders(cacheState),
   });
+  recordRouteCacheability({ cacheable: true, cacheControl: cacheControlHeader });
   applyCdnResponseHeaders(headers, { cacheControl: cacheControlHeader });
 
   if (fontLinkHeader) {
