@@ -20,8 +20,6 @@ export type ResponseStageCachePolicyOptions = {
   configHeaders: NextHeader[];
   pathname: string;
   requestContext: RequestContext;
-  /** Request-stage variance not represented by the browser URL. */
-  onRequestDependentRule?: () => void;
 };
 
 /**
@@ -35,14 +33,9 @@ export function resolveResponseStageCachePolicy({
   configHeaders,
   pathname,
   requestContext,
-  onRequestDependentRule,
 }: ResponseStageCachePolicyOptions): Array<[string, string]> | null {
   const matched = retainLastSingularConfigValues(
-    matchHeaders(pathname, configHeaders, requestContext, basePathState, (rule) => {
-      // Track source matches even when has/missing does not match this visitor:
-      // the browser otherwise could reuse this policy for a different visitor.
-      if (isRequestDependentHeaderRule(rule)) onRequestDependentRule?.();
-    }),
+    matchHeaders(pathname, configHeaders, requestContext, basePathState),
   );
   const policy = matched
     .filter((header) => {
@@ -56,15 +49,13 @@ export function resolveResponseStageCachePolicy({
   return policy.length > 0 ? policy : null;
 }
 
-function isRequestDependentHeaderRule(rule: NextHeader): boolean {
-  return [...(rule.has ?? []), ...(rule.missing ?? [])].some(
-    (condition) =>
-      condition.type === "header" || condition.type === "cookie" || condition.type === "host",
-  );
-}
-
 function markConditionalConfigHeaderCacheability(rule: NextHeader): void {
-  if (isRequestDependentHeaderRule(rule)) {
+  if (
+    [...(rule.has ?? []), ...(rule.missing ?? [])].some(
+      (condition) =>
+        condition.type === "header" || condition.type === "cookie" || condition.type === "host",
+    )
+  ) {
     // Legacy single-stage admission keys the public request rather than a
     // serialized stage envelope, so these conditions still require a veto.
     // Multi-stage callers set recordCacheability=false and carry the matched

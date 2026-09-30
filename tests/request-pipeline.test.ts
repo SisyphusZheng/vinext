@@ -265,32 +265,6 @@ describe("applyConfigHeadersToResponse", () => {
 });
 
 describe("response-stage config policy", () => {
-  it.each(["header", "cookie"] as const)(
-    "tracks a %s-dependent source even when its condition does not match",
-    (type) => {
-      const onRequestDependentRule = vi.fn();
-      const policy = resolveResponseStageCachePolicy({
-        configHeaders: [
-          {
-            source: "/about",
-            has: [{ type, key: "plan", value: "pro" }],
-            headers: [{ key: "Cache-Control", value: "max-age=300" }],
-          },
-        ],
-        pathname: "/about",
-        requestContext: {
-          headers: new Headers(),
-          cookies: {},
-          query: new URLSearchParams(),
-          host: "example.com",
-        },
-        onRequestDependentRule,
-      });
-      expect(policy).toBeNull();
-      expect(onRequestDependentRule).toHaveBeenCalledOnce();
-    },
-  );
-
   it("carries only matched positive cache policy and Vary fields", () => {
     const request = new Request("https://example.com/about", {
       headers: { "x-enable-cache": "yes" },

@@ -35,12 +35,6 @@ export type VinextResponseStageDispatchOptions = {
    */
   cache: "shared" | "bypass";
   /**
-   * Request-stage routing or inherited response headers can personalize the
-   * result without changing its final headers. Shared transports may still
-   * cache by their full invocation identity, but must revalidate browser reuse.
-   */
-  requiresBrowserRevalidation?: boolean;
-  /**
    * Query-free identity of a shared App page GET/HEAD dispatch, supplied only
    * to adapters that declare `responseStageCacheIdentity: "query-free"` and
    * require completed-response admission. A transport given one partitions

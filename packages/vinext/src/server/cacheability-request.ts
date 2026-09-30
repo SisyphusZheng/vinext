@@ -612,7 +612,7 @@ function responseWithCachePolicy(
     headers,
     outcome?.cacheable === true && outcome.cacheControl
       ? { cacheControl: outcome.cacheControl, tags: outcome.tags, browserCacheControl }
-      : { cacheControl: NO_STORE_CACHE_CONTROL },
+      : { cacheControl: NO_STORE_CACHE_CONTROL, browserCacheControl },
   );
   return new Response(body, {
     headers,
@@ -752,6 +752,12 @@ async function finalizeWorkerCacheabilityAdmission(
   // Require a clean completed body before an unlisted endpoint can enter the
   // shared cache.
   if (state.route?.kind === "app-route" || state.route?.kind === "pages-api") {
+    const browserCacheControl =
+      state.explicitResponseCachePolicy ||
+      state.explicitConfigCachePolicy ||
+      state.route.kind === "pages-api"
+        ? (response.headers.get("Cache-Control") ?? undefined)
+        : undefined;
     let manifestRoute: CacheabilityManifestRoute | null = null;
     const responseOutcome = inferPagesPageCacheability(response, state);
     const representation = admission?.representation
@@ -765,7 +771,7 @@ async function finalizeWorkerCacheabilityAdmission(
       state.explicitConfigCachePolicy === true ||
       (state.route.kind === "pages-api" && responseOutcome.cacheable);
     if (!admission || admission.policy === "deny" || !representation || !admission.requestKey) {
-      return responseWithCachePolicy(response, response.body, null);
+      return responseWithCachePolicy(response, response.body, null, browserCacheControl);
     }
     if (admission.policy === "manifest" && state.route.kind === "app-route") {
       const manifest = admission.manifest as CacheabilityManifest;
@@ -792,21 +798,16 @@ async function finalizeWorkerCacheabilityAdmission(
       hasStrictFinalResponseVeto(response, state) ||
       cacheabilityVaryRejectionReason(response.headers, state) !== null
     ) {
-      return responseWithCachePolicy(response, response.body, null);
+      return responseWithCachePolicy(response, response.body, null, browserCacheControl);
     }
 
     const outcome = responseOutcome;
     if (!outcome.cacheable || !outcome.cacheControl) {
-      return responseWithCachePolicy(response, response.body, null);
+      return responseWithCachePolicy(response, response.body, null, browserCacheControl);
     }
     if (state.completedResponseBody) {
       if (!state.applyCompletedResponsePolicy) return response;
-      return responseWithCachePolicy(
-        response,
-        response.body,
-        outcome,
-        response.headers.get("Cache-Control") ?? undefined,
-      );
+      return responseWithCachePolicy(response, response.body, outcome, browserCacheControl);
     }
 
     let captured: CapturedAdmissionBody;
@@ -821,14 +822,9 @@ async function finalizeWorkerCacheabilityAdmission(
       return cacheabilityEvaluationFailureResponse(state.route.pattern);
     }
     if (captured.kind === "fallback") {
-      return responseWithCachePolicy(response, captured.body, null);
+      return responseWithCachePolicy(response, captured.body, null, browserCacheControl);
     }
-    return responseWithCachePolicy(
-      response,
-      captured.body,
-      outcome,
-      response.headers.get("Cache-Control") ?? undefined,
-    );
+    return responseWithCachePolicy(response, captured.body, outcome, browserCacheControl);
   }
 
   if (

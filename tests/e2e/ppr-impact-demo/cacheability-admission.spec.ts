@@ -231,7 +231,7 @@ test("admits pattern-backed App responses only after each clean EOF", async ({ r
   await expect(explicitMixedRouteHandler.json()).resolves.toEqual({
     kind: "explicit-mixed-route-handler",
   });
-  expectGatewayCachePolicy(explicitMixedRouteHandler);
+  expectGatewayCachePolicy(explicitMixedRouteHandler, "public, s-maxage=60");
 
   // Next.js compiles metadata files into Route Handlers, so a dynamic image's
   // own public policy opts it into runtime admission the same way.
@@ -241,11 +241,10 @@ test("admits pattern-backed App responses only after each clean EOF", async ({ r
   expect(explicitMetadataRoute.status()).toBe(200);
   expect(explicitMetadataRoute.headers()["content-type"]).toBe("image/png");
   expect(await explicitMetadataRoute.text()).toBe("metadata-image");
-  // Its explicitly authored browser lifetime survives Workers Cache admission,
-  // while the gateway keeps downstream shared caches out of request routing.
+  // Its explicitly authored policy survives Workers Cache admission.
   expectGatewayCachePolicy(
     explicitMetadataRoute,
-    "private, immutable, no-transform, max-age=31536000",
+    "public, immutable, no-transform, max-age=31536000",
   );
 
   // `revalidate` alone is framework policy, not an explicit response-level
@@ -273,7 +272,7 @@ test("admits pattern-backed App responses only after each clean EOF", async ({ r
   await expect(explicitDynamicRouteHandler.json()).resolves.toEqual({
     value: "explicitly-public",
   });
-  expectGatewayCachePolicy(explicitDynamicRouteHandler);
+  expectGatewayCachePolicy(explicitDynamicRouteHandler, "public, s-maxage=60");
 
   const lateConfigPublicFailure = await request.get(
     "/cacheability/route-handler-config-public-late-error",

@@ -660,8 +660,6 @@ export default {
         const shared = markSharedResponseStage(response, crypto.randomUUID(), props, true);
         sharedResponses.set(shared.headers.get(SHARED_RESPONSE_STAGE_HEADER)!, {
           headers: new Headers(shared.headers),
-          status: shared.status,
-          requiresBrowserRevalidation: options.requiresBrowserRevalidation === true,
         });
         return shared;
       } catch (error) {

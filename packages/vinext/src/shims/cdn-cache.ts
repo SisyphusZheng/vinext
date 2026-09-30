@@ -39,7 +39,7 @@ export type CdnCacheableHeaderInput = {
    * when no cacheable policy applies.
    */
   cacheControl: string;
-  /** Explicit browser policy on an admitted endpoint, separate from the shared policy. */
+  /** Explicit endpoint policy returned to clients, independent of shared admission. */
   browserCacheControl?: string;
   /**
    * True when this is a freshly-rendered **streaming** response whose

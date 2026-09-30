@@ -8,6 +8,16 @@ import { NextResponse, type NextRequest } from "next/server";
  * for #1520.
  */
 export async function middleware(request: NextRequest) {
+  if (/^\/api\/browser-cache(?:-pages)?-bot-blocked$/.test(request.nextUrl.pathname)) {
+    return request.headers.get("user-agent")?.toLowerCase().includes("gptbot")
+      ? new NextResponse(null, { status: 403 })
+      : NextResponse.next();
+  }
+  if (/^\/api\/browser-cache(?:-pages)?-proxy$/.test(request.nextUrl.pathname)) {
+    const response = NextResponse.next();
+    response.headers.set("Cache-Control", "public, max-age=300");
+    return response;
+  }
   const visitorId = request.headers.get("x-test-visitor-id") ?? "anonymous";
   if (
     request.headers.has("x-test-visitor-id") &&
@@ -67,6 +77,12 @@ export async function middleware(request: NextRequest) {
     request.nextUrl.pathname.startsWith("/cdn-stage-pages/")
   ) {
     response.headers.set("x-cdn-stage-visitor", visitorId);
+  }
+  if (
+    request.nextUrl.pathname.startsWith("/api/draft-isr/") &&
+    request.headers.has("x-browser-policy")
+  ) {
+    response.headers.set("Cache-Control", "public, max-age=300");
   }
   return response;
 }

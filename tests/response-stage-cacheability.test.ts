@@ -710,6 +710,10 @@ describe("response-stage metadata route admission", () => {
   );
 
   it.each([
+    [
+      "the route permits private browser storage",
+      { response: png({ "Cache-Control": "private, max-age=300" }) },
+    ],
     ["the route opts out with no-store", { response: png({ "Cache-Control": "no-store" }) }],
     [
       "the route sets a cookie",
@@ -726,11 +730,14 @@ describe("response-stage metadata route admission", () => {
     ["the route fails with a 5xx", { response: png({ "Cache-Control": YEAR }, 503) }],
     ["the request is not a read", { method: "POST", response: png({ "Cache-Control": YEAR }) }],
     ["the route relies on the framework default", { response: png({}) }],
-  ])("keeps a metadata route private when %s", async (_label, options) => {
+  ])("rejects metadata shared storage when %s", async (_label, options) => {
     const { response } = await renderEventImage(options);
 
-    expect(response.headers.get("Cloudflare-CDN-Cache-Control")).toBeNull();
-    expect(response.headers.get("Cache-Control")).toContain("no-store");
+    const policy = new CloudflareCdnCacheAdapter().responsePolicy;
+    expect(policy.hasExplicitNonCacheablePolicy(response.headers)).toBe(true);
+    expect(response.headers.get("Cache-Control")).toBe(
+      options.response().headers.get("Cache-Control") ?? "no-store, must-revalidate",
+    );
     await expect(response.text()).resolves.toBe("png-bytes");
   });
 });

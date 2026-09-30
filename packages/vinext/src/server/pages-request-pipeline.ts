@@ -176,8 +176,6 @@ export type PagesPipelineDeps = {
   ctx?: unknown; // Cloudflare ExecutionContext or undefined (for Node)
   /** False when routing and middleware run outside the shared response stage. */
   recordCacheability?: boolean;
-  /** Reports source-matched redirect/rewrite rules with header/cookie/host conditions. */
-  onRequestDependentRoutingRule?: () => void;
   // Raw, un-re-encoded query string (incl. leading "?") for building redirect Location
   // headers. Node adapters that build the Web Request from a raw req.url string should
   // pass it so the redirect query isn't re-encoded by URL parsing (e.g. a literal "#"
@@ -349,14 +347,10 @@ export async function runPagesRequest(
     isDataReq,
     isDataRequest,
   } = deps;
-  const conditionalRedirectCacheability = (rule: NextRedirect) => {
-    if (ruleUsesUnkeyedRequestCondition(rule)) deps.onRequestDependentRoutingRule?.();
-    if (deps.recordCacheability !== false) markConditionalRedirectCacheability(rule);
-  };
-  const conditionalRewriteCacheability = (rule: NextRewrite) => {
-    if (ruleUsesUnkeyedRequestCondition(rule)) deps.onRequestDependentRoutingRule?.();
-    if (deps.recordCacheability !== false) markConditionalRewriteCacheability(rule);
-  };
+  const conditionalRedirectCacheability =
+    deps.recordCacheability === false ? undefined : markConditionalRedirectCacheability;
+  const conditionalRewriteCacheability =
+    deps.recordCacheability === false ? undefined : markConditionalRewriteCacheability;
 
   // Proxy helper: use deps.proxyExternal when supplied (dev adapter forwards
   // Node req body), otherwise fall back to proxyExternalRequest(currentReq, url).

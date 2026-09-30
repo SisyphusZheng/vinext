@@ -370,7 +370,7 @@ function publicResponse(
   response: Response,
   cacheStatus: string,
   responseStageProps: unknown,
-  admission: "bypass" | "completed" | "pending" = "bypass",
+  pendingAdmission = false,
 ): Response {
   const headers = new Headers(response.headers);
   const publicCacheStatus =
@@ -399,11 +399,7 @@ function publicResponse(
     headers.set("X-Vinext-Cache", publicCacheStatus);
   }
   const cacheControl = headers.get("Cache-Control");
-  if (
-    admission !== "completed" &&
-    (!cacheControl ||
-      !isNonCacheableCacheControl(cacheControl, admission === "pending" ? "browser" : "shared"))
-  ) {
+  if (pendingAdmission && (!cacheControl || !isNonCacheableCacheControl(cacheControl, "browser"))) {
     headers.set("Cache-Control", "private, max-age=0, must-revalidate");
   }
   return traceCachedResponseStart(
@@ -484,12 +480,12 @@ const handler = {
       const key = await cacheRequest(invocation);
       const stored = await readStoredResponse(key);
       if (stored) {
-        if (!rscKey) return publicResponse(stored, "HIT", props, "completed");
+        if (!rscKey) return publicResponse(stored, "HIT", props);
 
         const storedRsc = await readStoredResponse(rscKey);
         if (storedRsc) {
           void storedRsc.body?.cancel().catch(() => {});
-          return publicResponse(stored, "HIT", props, "completed");
+          return publicResponse(stored, "HIT", props);
         }
         void stored.body?.cancel().catch(() => {});
       }
@@ -532,11 +528,11 @@ const handler = {
         );
         // The foreground can precede admission. Retain browser revalidation
         // until the completed response has a proven policy.
-        return publicResponse(rendered, "MISS", props, "pending");
+        return publicResponse(rendered, "MISS", props, true);
       }
       if (!isCacheable(rendered)) {
         void capture?.rscData?.catch(() => {});
-        return publicResponse(rendered, "BYPASS", props, "completed");
+        return publicResponse(rendered, "BYPASS", props);
       }
       if (rscSeed && !capture?.rscData) {
         await rendered.body?.cancel();
@@ -587,7 +583,7 @@ const handler = {
           },
         );
       }
-      return publicResponse(new Response(foreground, rendered), "MISS", props, "completed");
+      return publicResponse(new Response(foreground, rendered), "MISS", props);
     };
 
     const { handleRequestStage } = await loadVinextRequestStage<
@@ -604,8 +600,6 @@ const handler = {
       headers.set(SHARED_RESPONSE_STAGE_HEADER, token);
       sharedResponses.set(token, {
         headers: new Headers(headers),
-        status: response.status,
-        requiresBrowserRevalidation: options.requiresBrowserRevalidation === true,
       });
       return new Response(response.body, {
         headers,

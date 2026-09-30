@@ -515,7 +515,7 @@ describe("createAppRscHandler", () => {
       kind: "app-page",
       matchKind: "request",
     });
-    expect(options).toEqual({ cache: "shared", requiresBrowserRevalidation: true });
+    expect(options).toEqual({ cache: "shared" });
   });
 
   it("normalizes only eligible main-tree loading-shell RSC requests", async () => {
@@ -984,8 +984,8 @@ describe("createAppRscHandler", () => {
           options,
         ]),
       ).toEqual([
-        ["app-page", "request", { cache: "shared", requiresBrowserRevalidation: true }],
-        ["app-page", "interception", { cache: "shared", requiresBrowserRevalidation: true }],
+        ["app-page", "request", { cache: "shared" }],
+        ["app-page", "interception", { cache: "shared" }],
         ["app-route-handler", "request", { cache: "shared" }],
       ]);
     });
@@ -2603,10 +2603,7 @@ describe("createAppRscHandler", () => {
       canonicalPathname: "/alias",
       cleanPathname: "/about",
     });
-    expect(dispatchResponseStage.mock.calls[0]?.[2]).toEqual({
-      cache: "shared",
-      requiresBrowserRevalidation: true,
-    });
+    expect(dispatchResponseStage.mock.calls[0]?.[2]).toEqual({ cache: "shared" });
     expect(response.headers.get("Cache-Control")).toBe("public, s-maxage=3600");
   });
 

@@ -40,7 +40,7 @@ import {
   beginRouteCacheability,
   markRouteCacheabilityExplicitResponsePolicy,
 } from "vinext/shims/cacheability-classification";
-import { hasCdnResponsePolicy, hasExplicitNonCacheableResponsePolicy } from "./cache-control.js";
+import { hasCdnResponsePolicy } from "./cache-control.js";
 import type { CachedRouteValue } from "vinext/shims/cache-handler";
 import { buildPageCacheTags } from "./implicit-tags.js";
 import { resolveClientStaleTimeSeconds } from "../utils/cache-control-metadata.js";
@@ -171,12 +171,9 @@ function metadataRouteCacheHeader(route: MetadataRuntimeRoute): string {
 }
 
 function withMetadataRouteCacheHeader(response: Response, route: MetadataRuntimeRoute): Response {
-  // Like a Route Handler, a route's own public policy opts it into shared
-  // caching. The framework default applied below never does.
-  if (
-    hasCdnResponsePolicy(response.headers) &&
-    !hasExplicitNonCacheableResponsePolicy(response.headers)
-  ) {
+  // Record authorship independently of whether shared admission accepts the
+  // policy. Private responses still retain their browser lifetime.
+  if (hasCdnResponsePolicy(response.headers)) {
     markRouteCacheabilityExplicitResponsePolicy();
   }
   const headers = new Headers(response.headers);

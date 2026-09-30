@@ -173,7 +173,7 @@ export function recordConfigCdnCachePolicyHeader(
   (state.configCdnCachePolicy ??= new Map()).set(name.toLowerCase(), applied);
 }
 
-/** Record a public cache policy supplied by the Route Handler itself. */
+/** Record an explicit cache policy supplied by the Route Handler itself. */
 export function markRouteCacheabilityExplicitResponsePolicy(): void {
   const state = readRouteCacheabilityState();
   if (!state || state.mode !== "admit") return;

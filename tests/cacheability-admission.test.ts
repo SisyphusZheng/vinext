@@ -650,7 +650,7 @@ describe("single-request cacheability admission", () => {
         return finalizeWorkerCacheabilityResponse(rendered, context);
       });
 
-      expect(response.headers.get("Cache-Control")).toBe("public, max-age=0, must-revalidate");
+      expect(response.headers.get("Cache-Control")).toBe("private, max-age=0, must-revalidate");
       expect(response.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
         "public, max-age=60, stale-while-revalidate=540",
       );
@@ -750,14 +750,14 @@ describe("single-request cacheability admission", () => {
       const response = await finalizeWorkerCacheabilityResponse(
         new Response("page", {
           headers: {
-            "Cache-Control": "public, max-age=0, must-revalidate",
+            "Cache-Control": "private, max-age=0, must-revalidate",
             "CDN-Cache-Control": "public, max-age=60",
           },
         }),
         context,
       );
 
-      expect(response.headers.get("Cache-Control")).toBe("public, max-age=0, must-revalidate");
+      expect(response.headers.get("Cache-Control")).toBe("private, max-age=0, must-revalidate");
       expect(adapter.responsePolicy.readCacheControl(response.headers)).toBe("public, max-age=60");
     } finally {
       setCdnCacheAdapter(new DefaultCdnCacheAdapter());
@@ -1719,7 +1719,7 @@ describe("single-request cacheability admission", () => {
     expect(context).not.toBe(base);
     const response = await finalizeWorkerCacheabilityResponse(
       new Response("pages", {
-        headers: { "Cache-Control": "public, max-age=0, must-revalidate" },
+        headers: { "Cache-Control": "private, max-age=0, must-revalidate" },
       }),
       context,
     );

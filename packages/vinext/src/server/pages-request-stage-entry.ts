@@ -45,7 +45,6 @@ import { resolveResponseStageCachePolicy } from "./config-headers.js";
 import {
   applyCdnResponseIdentityHeaders,
   captureCdnResponsePolicyOverrides,
-  isCdnResponsePolicyHeader,
   reconcileCdnResponseHeadersAfterOuterPolicy,
   validateCdnRequest,
 } from "./cache-control.js";
@@ -314,8 +313,6 @@ async function handleRequestImpl(
     }
 
     let responseStageDispatched = false;
-    let middlewarePathnameEligible = false;
-    let hasRequestDependentConfigRules = false;
     const trackedDispatchResponseStage: PagesStageRuntimeDispatch = (
       stageRequest,
       props,
@@ -324,27 +321,7 @@ async function handleRequestImpl(
       stageCtx,
     ) => {
       responseStageDispatched = true;
-      const resolvedUrl =
-        props.kind === "pages-api"
-          ? props.apiUrl
-          : props.kind === "pages-page"
-            ? props.resolvedUrl
-            : request.url;
-      const requiresBrowserRevalidation =
-        options.cache === "shared" &&
-        (middlewarePathnameEligible ||
-          hasRequestDependentConfigRules ||
-          new URL(resolvedUrl, request.url).href !== request.url ||
-          props.stagedHeaders?.some(
-            ([name]) => name.toLowerCase() !== "vary" && !isCdnResponsePolicyHeader(name),
-          ));
-      return dispatchResponseStage(
-        stageRequest,
-        props,
-        requiresBrowserRevalidation ? { ...options, requiresBrowserRevalidation: true } : options,
-        stageEnv,
-        stageCtx,
-      );
+      return dispatchResponseStage(stageRequest, props, options, stageEnv, stageCtx);
     };
 
     if (!didValidateCdnRequest) {
@@ -441,9 +418,6 @@ async function handleRequestImpl(
       ? normalizeDefaultLocalePathname(pathname, i18nConfig, { hostname: url.hostname })
       : pathname;
     const responseStagePolicyHeaders = resolveResponseStageCachePolicy({
-      onRequestDependentRule: () => {
-        hasRequestDependentConfigRules = true;
-      },
       basePathState: { basePath, hadBasePath },
       configHeaders,
       pathname: responseStagePolicyPathname,
@@ -469,9 +443,6 @@ async function handleRequestImpl(
       hasMiddleware,
       ctx,
       recordCacheability: forceCacheBypass,
-      onRequestDependentRoutingRule: () => {
-        hasRequestDependentConfigRules = true;
-      },
       middlewareRequest:
         isDataReq && vinextConfig?.skipProxyUrlNormalize ? middlewareRequest : undefined,
       dataNotFoundResponse: vinextConfig?.skipProxyUrlNormalize ? dataNorm.notFoundResponse : null,
@@ -481,15 +452,7 @@ async function handleRequestImpl(
       matchPageRoute: typeof matchPageRoute === "function" ? matchPageRoute : null,
       runMiddleware:
         typeof runMiddleware === "function"
-          ? wrapMiddlewareWithBasePath(
-              async (...args) => {
-                const result = await runMiddleware(...args);
-                middlewarePathnameEligible = result.pathnameEligible === true;
-                return result;
-              },
-              basePath,
-              hadBasePath,
-            )
+          ? wrapMiddlewareWithBasePath(runMiddleware, basePath, hadBasePath)
           : null,
       renderPage: (req, resolvedUrl, options, stagedHeaders) => {
         if (options?.renderErrorPageOnMiss === false && req.body !== null && !req.bodyUsed) {

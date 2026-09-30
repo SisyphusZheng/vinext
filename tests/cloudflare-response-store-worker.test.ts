@@ -45,8 +45,8 @@ describe("Cloudflare Response Store Worker", () => {
     });
   });
 
-  it.each(["unchanged", "vary", "header", "cookie", "status", "conditional-route", "marker"])(
-    "guards browser freshness after Response Store composition: %s",
+  it.each(["unchanged", "vary", "header", "cookie", "status", "marker"])(
+    "preserves browser policy after Response Store composition: %s",
     async (mutation) => {
       const store = {
         fetch: vi.fn(
@@ -69,7 +69,6 @@ describe("Cloudflare Response Store Worker", () => {
           { kind: "app-route" },
           {
             cache: "shared",
-            requiresBrowserRevalidation: mutation === "conditional-route",
           },
         );
         const headers = new Headers(response.headers);
@@ -86,9 +85,7 @@ describe("Cloudflare Response Store Worker", () => {
         { passThroughOnException: vi.fn(), waitUntil: vi.fn() },
       );
       expect(response.headers.get("Cache-Control")).toBe(
-        ["unchanged", "vary"].includes(mutation)
-          ? "private, max-age=10, stale-while-revalidate=60"
-          : "private, max-age=0, must-revalidate",
+        mutation === "marker" ? "no-store" : "max-age=10, stale-while-revalidate=60",
       );
       expect(response.headers.get("X-Vinext-Cache")).toBe(mutation === "marker" ? null : "HIT");
       expect(response.headers.get("x-vinext-cloudflare-shared-response-stage")).toBeNull();
@@ -625,7 +622,7 @@ describe("Cloudflare Response Store Worker query-free cache identity", () => {
         cacheControl.startsWith("private")
           ? "private, max-age=0, must-revalidate"
           : cacheControl === "no-cache"
-            ? "private, no-cache"
+            ? "no-cache"
             : cacheControl,
       );
       await response.text();

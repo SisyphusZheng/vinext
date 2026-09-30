@@ -746,7 +746,7 @@ describe("Cloudflare CDN multi-stage Worker facade", () => {
       { exports: { VinextCachedResponse: binding } },
     );
 
-    expect(response.headers.get("Cache-Control")).toBe("private, max-age=0, must-revalidate");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(response.headers.get("Cache-Tag")).toBeNull();
     expect(response.headers.get("CDN-Cache-Control")).toBeNull();
     expect(response.headers.get("X-Vinext-Cache")).toBeNull();
@@ -872,7 +872,7 @@ describe("Cloudflare CDN multi-stage Worker facade", () => {
       fetch: vi.fn().mockResolvedValue(
         new Response("shared", {
           headers: {
-            "Cache-Control": "public, max-age=0, must-revalidate",
+            "Cache-Control": "private, max-age=0, must-revalidate",
             "Cloudflare-CDN-Cache-Control": "public, max-age=300",
           },
         }),
@@ -901,13 +901,13 @@ describe("Cloudflare CDN multi-stage Worker facade", () => {
   });
 
   it.each([
-    ["MISS", "max-age=10", "private, max-age=10"],
-    ["HIT", "max-age=10", "private, max-age=10"],
+    ["MISS", "max-age=10", "max-age=10"],
+    ["HIT", "max-age=10", "max-age=10"],
     ["MISS", "private, max-age=10", "private, max-age=10"],
     ["HIT", "private, max-age=10", "private, max-age=10"],
-    ["MISS", "public, max-age=10, no-cache", "private, max-age=10, no-cache"],
-    ["HIT", "public, max-age=10, no-cache", "private, max-age=10, no-cache"],
-    ["HIT", 'private="ETag", max-age=10', "private, max-age=10"],
+    ["MISS", "public, max-age=10, no-cache", "public, max-age=10, no-cache"],
+    ["HIT", "public, max-age=10, no-cache", "public, max-age=10, no-cache"],
+    ["HIT", 'private="ETag", max-age=10', 'private="ETag", max-age=10'],
   ])(
     "preserves browser policy on an unchanged %s with %s",
     async (cacheStatus, cacheControl, expected) => {
@@ -960,7 +960,7 @@ describe("Cloudflare CDN multi-stage Worker facade", () => {
         exports: { VinextCachedResponse: binding },
       },
     );
-    expect(response.headers.get("Cache-Control")).toBe("private, max-age=300");
+    expect(response.headers.get("Cache-Control")).toBe("public, max-age=300");
     expect(response.headers.get("Cloudflare-CDN-Cache-Control")).toBeNull();
   });
 
@@ -973,7 +973,7 @@ describe("Cloudflare CDN multi-stage Worker facade", () => {
     "remove-vary",
     "qualified-no-cache",
     "private",
-  ])("revalidates an explicit browser policy after gateway %s", async (mutation) => {
+  ])("preserves an explicit browser policy after gateway %s", async (mutation) => {
     const binding = vi.fn(() => ({
       fetch: vi.fn().mockResolvedValue(
         new Response("shared", {
@@ -1009,7 +1009,13 @@ describe("Cloudflare CDN multi-stage Worker facade", () => {
         exports: { VinextCachedResponse: binding },
       },
     );
-    expect(response.headers.get("Cache-Control")).toBe("private, max-age=0, must-revalidate");
+    expect(response.headers.get("Cache-Control")).toBe(
+      mutation === "qualified-no-cache"
+        ? 'public, max-age=300, no-cache="ETag"'
+        : mutation === "private"
+          ? "private, max-age=300"
+          : "max-age=10",
+    );
   });
 
   it("does not rewrite an unrelated fallback after a speculative shared dispatch", async () => {
@@ -1288,7 +1294,7 @@ describe("Cloudflare CDN multi-stage Worker facade", () => {
     stages.response.mockResolvedValue(
       new Response("variant", {
         headers: {
-          "Cache-Control": "public, max-age=0, must-revalidate",
+          "Cache-Control": "private, max-age=0, must-revalidate",
           "CDN-Cache-Control": "public, max-age=300",
           "Cache-Tag": "variant-specific-tag",
           Vary: "RSC, Accept-Language",

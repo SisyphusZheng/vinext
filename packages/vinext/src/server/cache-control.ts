@@ -163,7 +163,7 @@ export function reconcileCdnResponseHeadersAfterOuterPolicy(
   }
   const cacheControl = outerPolicyHeaders.get("cache-control");
   if (cacheControl !== null) {
-    applyCdnResponseHeaders(headers, { cacheControl });
+    applyCdnResponseHeaders(headers, { cacheControl, browserCacheControl: cacheControl });
     // Preserve any explicit provider-specific policy authored alongside the
     // generic middleware policy after the adapter has derived its defaults.
     for (const [name, value] of outerPolicyHeaders) {
