@@ -779,9 +779,15 @@ export function localizePagesPath(
   locale: string | undefined,
   i18n: ResolvedNextConfig["i18n"],
 ): string {
-  // Qualify the default locale too: /fr may mean French home, whereas
-  // /en/fr is the English page whose first route segment happens to be fr.
   if (!i18n || !locale) return pathname;
+  if (locale === i18n.defaultLocale) {
+    // Keep the canonical public URL unless its first segment names a locale:
+    // /fr is French home, whereas /en/fr is the English page named fr.
+    const firstSegment = pathname.split("/")[1]?.toLowerCase();
+    if (!i18n.locales.some((candidate) => candidate.toLowerCase() === firstSegment)) {
+      return pathname;
+    }
+  }
   return pathname === "/" ? `/${locale}` : `/${locale}${pathname}`;
 }
 

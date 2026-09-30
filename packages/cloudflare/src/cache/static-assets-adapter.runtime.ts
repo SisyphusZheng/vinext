@@ -78,6 +78,8 @@ export class StaticAssetsCacheAdapter implements CdnCacheAdapter {
       | CachedRedirectValue
       | null;
     if (metadata.kind === "not-found") {
+      // The artifact only proves the snapshot exists; release its unread body.
+      await bodyResponse.body?.cancel();
       value = null;
     } else if (metadata.kind === "redirect") {
       value = { kind: "REDIRECT", props: (await bodyResponse.json()) as object };

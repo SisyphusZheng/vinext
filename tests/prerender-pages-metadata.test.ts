@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createServer, type RequestListener, type Server } from "node:http";
-import { prerenderPages } from "../packages/vinext/src/build/prerender.js";
+import { localizePagesPath, prerenderPages } from "../packages/vinext/src/build/prerender.js";
 import { pagesRouter } from "../packages/vinext/src/routing/pages-router.js";
 import { resolveNextConfig, type NextConfig } from "../packages/vinext/src/config/next-config.js";
 
@@ -217,6 +217,17 @@ describe("Pages prerender response metadata", () => {
 });
 
 describe("Pages prerender locales", () => {
+  it("keeps canonical default-locale URLs unless a segment names a locale", () => {
+    const i18n = { locales: ["en", "fr"], defaultLocale: "en", localeDetection: false as const };
+    expect(localizePagesPath("/", "en", i18n)).toBe("/");
+    expect(localizePagesPath("/about", "en", i18n)).toBe("/about");
+    expect(localizePagesPath("/fr", "en", i18n)).toBe("/en/fr");
+    expect(localizePagesPath("/FR/about", "en", i18n)).toBe("/en/FR/about");
+    expect(localizePagesPath("/en", "en", i18n)).toBe("/en/en");
+    expect(localizePagesPath("/", "fr", i18n)).toBe("/fr");
+    expect(localizePagesPath("/about", "fr", i18n)).toBe("/fr/about");
+  });
+
   // Next.js: test/e2e/i18n-support/i18n-support.test.ts
   // https://github.com/vercel/next.js/blob/canary/test/e2e/i18n-support/i18n-support.test.ts
   it("enumerates static locales and retains dynamic object/string locales", async () => {
@@ -256,14 +267,14 @@ describe("Pages prerender locales", () => {
     expect(staticPathsContext?.get("defaultLocale")).toBe("en");
     expect(requested.sort()).toEqual(
       [
-        "/en",
-        "/en/404",
+        "/",
+        "/404",
         "/fr",
         "/fr/404",
         "/fr/posts/fr-object",
         "/fr/posts/fr-string",
-        "/en/posts/default",
-        "/en/posts/en-string",
+        "/posts/default",
+        "/posts/en-string",
       ].sort(),
     );
     const manifest = JSON.parse(

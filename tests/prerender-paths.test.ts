@@ -2831,11 +2831,11 @@ describe("prerender path manifest", () => {
       root: tmpDir,
     });
 
-    expect(manifest?.paths).toEqual(["/fr/api/status", "/fr/about", "/en/about"]);
+    expect(manifest?.paths).toEqual(["/fr/api/status", "/fr/about", "/about"]);
     expect(manifest?.appPaths).toEqual(["/fr/api/status"]);
     expect(manifest?.rscPaths).toEqual(["/fr/api/status"]);
     expect(manifest?.loadingShellPaths).toEqual(["/fr/api/status"]);
-    expect(manifest?.pagesPaths).toEqual(["/fr/about", "/en/about"]);
+    expect(manifest?.pagesPaths).toEqual(["/fr/about", "/about"]);
   });
 
   it("resolves Pages-discovered warm paths to their runtime App owner", async () => {
@@ -3213,9 +3213,9 @@ describe("prerender path manifest", () => {
     const manifest = await emitPrerenderPathManifest({ root: tmpDir, nextConfig });
 
     expect(manifest?.paths).toEqual([
-      "/en/about",
+      "/about",
       "/fr/about",
-      "/en/posts/hello",
+      "/posts/hello",
       "/fr/posts/bonjour",
       "/fr/posts/string-fr",
       "/FR/posts/string-fr-upper",
@@ -3238,15 +3238,15 @@ describe("prerender path manifest", () => {
     expect(
       manifest?.routePatterns?.["/docs/_next/data/build-a/en/posts/hello.json"]?.cacheabilityProbe
         ?.concretePathname,
-    ).toBe("/docs/en/posts/hello");
+    ).toBe("/docs/posts/hello");
     expect(fetch).toHaveBeenCalledWith(
       "http://127.0.0.1:43210/__vinext/prerender/pages-static-paths?pattern=%2Fposts%2F%3Aslug&locales=%5B%22en%22%2C%22fr%22%5D&defaultLocale=en",
       expect.any(Object),
     );
     expect(readPrerenderWarmPlan(tmpDir).paths).toEqual([
-      "/docs/en/about/",
+      "/docs/about/",
       "/docs/fr/about/",
-      "/docs/en/posts/hello/",
+      "/docs/posts/hello/",
       "/docs/fr/posts/bonjour/",
       "/docs/fr/posts/string-fr/",
       "/docs/FR/posts/string-fr-upper/",
@@ -3393,8 +3393,8 @@ describe("prerender path manifest", () => {
       root: tmpDir,
     });
 
-    expect(manifest?.paths).toEqual(["/en/about"]);
-    expect(manifest?.pagesPaths).toEqual(["/en/about"]);
+    expect(manifest?.paths).toEqual(["/about"]);
+    expect(manifest?.pagesPaths).toEqual(["/about"]);
     expect(manifest?.excludedWarmPaths).toEqual(["/fr/about"]);
   });
 

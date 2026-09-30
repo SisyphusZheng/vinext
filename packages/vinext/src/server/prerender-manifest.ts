@@ -159,7 +159,8 @@ export function getPrerenderedConcretePaths(
   const paths: string[] = [];
   const seen = new Set<string>();
   for (const route of routes) {
-    if (route.status !== "rendered") continue;
+    // A Pages getStaticProps notFound result is a 404 snapshot, not a page URL.
+    if (route.status !== "rendered" || route.notFound) continue;
     const pathname = route.path ?? route.route;
     if (!options?.includeFallbackShells && isFallbackShellArtifactPath(pathname, route)) {
       continue;
