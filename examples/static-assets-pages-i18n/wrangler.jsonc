@@ -1,6 +1,8 @@
 {
-  "name": "vinext-static-assets-pages-test",
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "static-assets-pages-i18n",
   "main": "vinext/server/fetch-handler",
+  "preview_urls": true,
   "compatibility_date": "2026-08-06",
   "compatibility_flags": ["nodejs_compat"],
   "assets": {

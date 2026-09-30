@@ -315,25 +315,31 @@ const projectServers = {
   },
   "cloudflare-static-assets-pages": {
     testDir: "./tests/e2e/cloudflare-static-assets-pages",
-    use: { baseURL: "http://localhost:4216" },
-    server: {
-      command:
-        "(test -e node_modules || test -L node_modules || ln -s ../../../fixtures/cf-app-basic/node_modules node_modules) && npx vp run vinext#build && npx vp run @vinext/cloudflare#build && node ../../../../packages/vinext/dist/cli.js build && npx wrangler dev --config dist/server/wrangler.json --port 4216",
-      cwd: "./tests/e2e/cloudflare-static-assets-pages/fixture",
-      port: 4216,
-      reuseExistingServer: !process.env.CI,
-      timeout: 180_000,
-    },
-    additionalServers: [
-      {
-        command:
-          "(test -e node_modules || test -L node_modules || ln -s ../../../fixtures/cf-app-basic/node_modules node_modules) && npx vp run vinext#build && npx vp run @vinext/cloudflare#build && node ../../../../packages/vinext/dist/cli.js build && npx wrangler dev --config dist/server/wrangler.json --port 4217",
-        cwd: "./tests/e2e/cloudflare-static-assets-pages/error-fixture",
-        port: 4217,
-        reuseExistingServer: !process.env.CI,
-        timeout: 180_000,
-      },
-    ],
+    use: { baseURL: process.env.VINEXT_E2E_BASE_URL ?? "http://localhost:4216" },
+    // Deployed runs set VINEXT_E2E_I18N_BASE_URL for the companion example.
+    server: process.env.VINEXT_E2E_BASE_URL
+      ? null
+      : {
+          // Local builds enable the preview/revalidation test controls.
+          command:
+            "npx vp run vinext#build && npx vp run @vinext/cloudflare#build && VINEXT_E2E_CONTROLS=1 npx vp build && npx wrangler dev --config dist/server/wrangler.json --port 4216",
+          cwd: "./examples/static-assets-pages",
+          port: 4216,
+          reuseExistingServer: !process.env.CI,
+          timeout: 180_000,
+        },
+    additionalServers: process.env.VINEXT_E2E_BASE_URL
+      ? []
+      : [
+          {
+            command:
+              "npx vp run vinext#build && npx vp run @vinext/cloudflare#build && npx vp build && npx wrangler dev --config dist/server/wrangler.json --port 4217",
+            cwd: "./examples/static-assets-pages-i18n",
+            port: 4217,
+            reuseExistingServer: !process.env.CI,
+            timeout: 180_000,
+          },
+        ],
   },
   "cloudflare-static-export": {
     testDir: "./tests/e2e/cloudflare-static-export",

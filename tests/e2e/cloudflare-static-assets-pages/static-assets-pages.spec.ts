@@ -1,9 +1,26 @@
-import { expect, test, type APIResponse } from "@playwright/test";
+import { expect, test, type APIRequestContext, type APIResponse } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 
-const fixture = path.resolve("tests/e2e/cloudflare-static-assets-pages/fixture");
-const cacheDir = path.join(fixture, "dist/client/_vinext/static-cache");
+// Local runs build both examples; deployed runs target each PR's preview.
+const deployed = Boolean(process.env.VINEXT_E2E_BASE_URL);
+const i18nBaseURL = process.env.VINEXT_E2E_I18N_BASE_URL ?? "http://localhost:4217";
+if (deployed && !process.env.VINEXT_E2E_I18N_BASE_URL) {
+  throw new Error("VINEXT_E2E_I18N_BASE_URL is required with VINEXT_E2E_BASE_URL");
+}
+const cacheDir = path.resolve("examples/static-assets-pages/dist/client/_vinext/static-cache");
+
+/** index.json is always packaged; deployed runs cannot list the remaining ids. */
+function listArtifacts(): string[] {
+  return deployed ? ["index.json"] : fs.readdirSync(cacheDir);
+}
+
+/** Read the build ID from a page, so deployed runs need no local build output. */
+async function readBuildId(request: APIRequestContext, url: string): Promise<string> {
+  const buildId = /"buildId":"([^"]+)"/.exec(await (await request.get(url)).text())?.[1];
+  if (!buildId) throw new Error(`No buildId in ${url}`);
+  return buildId;
+}
 
 function expectHit(response: APIResponse) {
   expect(response.status()).toBe(200);
@@ -15,7 +32,7 @@ function expectHit(response: APIResponse) {
 test("prerendered Pages HTML and navigation JSON are build-time cache hits", async ({
   request,
 }) => {
-  const buildId = fs.readFileSync(path.join(fixture, "dist/server/BUILD_ID"), "utf8").trim();
+  const buildId = await readBuildId(request, "/");
   for (const pathname of [
     "/posts/first",
     "/posts/second",
@@ -79,13 +96,14 @@ test("finite ISR and on-demand revalidation leave the packaged snapshot unchange
   expectHit(initial);
   const snapshot = await initial.text();
   await new Promise((resolve) => setTimeout(resolve, 1100));
-  expect((await request.get("/api/revalidate")).status()).toBe(200);
+  // Deployed builds compile the revalidation control to a 404.
+  expect((await request.get("/api/revalidate")).status()).toBe(deployed ? 404 : 200);
   const response = await request.get("/posts/first");
   expectHit(response);
   expect(await response.text()).toBe(snapshot);
   // This path list exists only at build time. Its finite TTL must not turn
   // immutable packaged entries into misses that rerun runtime getStaticPaths.
-  const buildOnly = await request.get("http://localhost:4217/fr/posts/first/");
+  const buildOnly = await request.get(`${i18nBaseURL}/fr/posts/first/`);
   expectHit(buildOnly);
   expect(await buildOnly.text()).toContain('id="render-source">build-time</p>');
 });
@@ -105,6 +123,10 @@ test("SSR and unlisted fallback paths render at runtime without being persisted"
 });
 
 test("preview bypasses the prerendered page", async ({ request }) => {
+  if (deployed) {
+    expect((await request.get("/api/preview")).status()).toBe(404);
+    test.skip(true, "deployed builds do not expose the preview control");
+  }
   expect((await request.get("/api/preview")).status()).toBe(200);
   const response = await request.get("/posts/first");
   expect(response.status()).toBe(200);
@@ -143,7 +165,7 @@ test("a prerendered 404 retains source response cookies without persisting them"
 test("private artifacts remain inaccessible and the custom 404 keeps its status", async ({
   request,
 }) => {
-  const artifacts = fs.readdirSync(cacheDir);
+  const artifacts = listArtifacts();
   expect(artifacts).toContain("index.json");
   for (const artifact of artifacts) {
     const response = await request.get(`/_vinext/static-cache/${artifact}`);
@@ -162,12 +184,12 @@ test("private artifacts remain inaccessible and the custom 404 keeps its status"
 test("custom _error uses its 404 snapshot without reusing it for server errors", async ({
   request,
 }) => {
-  const missing = await request.get("http://localhost:4217/missing");
+  const missing = await request.get(`${i18nBaseURL}/missing`);
   expect(missing.status()).toBe(404);
   expect(missing.headers()["x-vinext-cache"]).toBe("HIT");
   expect(await missing.text()).toContain('id="render-source">build-time</p>');
 
-  const failure = await request.get("http://localhost:4217/dynamic?fail=1");
+  const failure = await request.get(`${i18nBaseURL}/dynamic?fail=1`);
   expect(failure.status()).toBe(500);
   expect(failure.headers()["x-vinext-cache"]).not.toBe("HIT");
   expect(await failure.text()).toContain('id="render-source">runtime</p>');
@@ -178,11 +200,12 @@ test("custom _error uses its 404 snapshot without reusing it for server errors",
 test("i18n domains render their own context instead of a locale-only snapshot", async ({
   request,
 }) => {
+  test.skip(deployed, "workers.dev routing cannot receive the configured i18n domain hosts");
   for (const [host, defaultLocale] of [
     ["en.example", "en"],
     ["fr.example", "fr"],
   ]) {
-    const response = await request.get("http://localhost:4217/en", { headers: { Host: host } });
+    const response = await request.get(`${i18nBaseURL}/en`, { headers: { Host: host } });
     expect(response.status()).toBe(200);
     expect(response.headers()["x-vinext-cache"]).not.toBe("HIT");
     const html = await response.text();
@@ -194,7 +217,7 @@ test("i18n domains render their own context instead of a locale-only snapshot", 
 // Next.js caches terminal GSP results, including redirect props and null notFound entries.
 // https://github.com/vercel/next.js/blob/canary/test/e2e/prerender.test.ts
 test("build-time redirects stay immutable for HTML and data", async ({ request }) => {
-  const buildId = fs.readFileSync(path.join(fixture, "dist/server/BUILD_ID"), "utf8").trim();
+  const buildId = await readBuildId(request, "/");
   const redirect = await request.get("/redirect", { maxRedirects: 0 });
   expect(redirect.status()).toBe(307);
   expect(redirect.headers()["location"]).toBe("/posts/first?from=build");
@@ -210,7 +233,7 @@ test("build-time redirects stay immutable for HTML and data", async ({ request }
 });
 
 test("build-time notFound results stay immutable for HTML and data", async ({ request }) => {
-  const buildId = fs.readFileSync(path.join(fixture, "dist/server/BUILD_ID"), "utf8").trim();
+  const buildId = await readBuildId(request, "/");
   const removed = await request.get("/removed");
   expect(removed.status()).toBe(404);
   expect(removed.headers()["x-vinext-cache"]).toBe("HIT");
@@ -224,19 +247,18 @@ test("build-time notFound results stay immutable for HTML and data", async ({ re
 test("locale-prefixed static pages and getStaticPaths variants use their build snapshots", async ({
   request,
 }) => {
-  const errorFixture = path.resolve("tests/e2e/cloudflare-static-assets-pages/error-fixture");
-  const buildId = fs.readFileSync(path.join(errorFixture, "dist/server/BUILD_ID"), "utf8").trim();
+  const buildId = await readBuildId(request, `${i18nBaseURL}/`);
   for (const pathname of ["/fr", "/fr/posts/first", "/fr/posts/string", "/fr/posts/french-only"]) {
-    const response = await request.get(`http://localhost:4217${pathname}`);
+    const response = await request.get(`${i18nBaseURL}${pathname}`);
     expectHit(response);
     expect(await response.text()).toContain('id="locale">fr</p>');
   }
-  const data = await request.get(`http://localhost:4217/_next/data/${buildId}/fr/posts/first.json`);
+  const data = await request.get(`${i18nBaseURL}/_next/data/${buildId}/fr/posts/first.json`);
   expectHit(data);
   expect(await data.json()).toMatchObject({ pageProps: { locale: "fr", source: "build-time" } });
-  const unlistedLocale = await request.get("http://localhost:4217/posts/french-only");
+  const unlistedLocale = await request.get(`${i18nBaseURL}/posts/french-only`);
   expect(unlistedLocale.status()).toBe(404);
-  const missing = await request.get("http://localhost:4217/fr/missing");
+  const missing = await request.get(`${i18nBaseURL}/fr/missing`);
   expect(missing.status()).toBe(404);
   expect(missing.headers()["x-vinext-cache"]).toBe("HIT");
   expect(await missing.text()).toContain('id="render-source">build-time</p>');
@@ -264,7 +286,7 @@ test("cached internal redirects preserve client navigation", async ({ page }) =>
 test("equivalent encodings hit the same snapshot while escaped delimiters stay distinct", async ({
   request,
 }) => {
-  const buildId = fs.readFileSync(path.join(fixture, "dist/server/BUILD_ID"), "utf8").trim();
+  const buildId = await readBuildId(request, "/");
   for (const [slug, encodings] of [
     ["first", ["first", "%66irst"]],
     ["café", ["caf%C3%A9", "caf%c3%a9"]],
@@ -294,20 +316,19 @@ test("equivalent encodings hit the same snapshot while escaped delimiters stay d
 test("default-locale paths named after locales keep their own terminal snapshots", async ({
   request,
 }) => {
-  const errorFixture = path.resolve("tests/e2e/cloudflare-static-assets-pages/error-fixture");
-  const buildId = fs.readFileSync(path.join(errorFixture, "dist/server/BUILD_ID"), "utf8").trim();
-  const redirect = await request.get("http://localhost:4217/en/fr/", { maxRedirects: 0 });
+  const buildId = await readBuildId(request, `${i18nBaseURL}/`);
+  const redirect = await request.get(`${i18nBaseURL}/en/fr/`, { maxRedirects: 0 });
   expect(redirect.status()).toBe(307);
   expect(redirect.headers()["location"]).toBe("/posts/first/?from=default-fr");
   expect(redirect.headers()["x-vinext-cache"]).toBe("HIT");
-  const data = await request.get(`http://localhost:4217/_next/data/${buildId}/en/fr.json`);
+  const data = await request.get(`${i18nBaseURL}/_next/data/${buildId}/en/fr.json`);
   expectHit(data);
   expect((await data.json()).pageProps.__N_REDIRECT).toBe("/posts/first/?from=default-fr");
-  const notFound = await request.get(`http://localhost:4217/_next/data/${buildId}/en/en.json`);
+  const notFound = await request.get(`${i18nBaseURL}/_next/data/${buildId}/en/en.json`);
   expect(notFound.status()).toBe(404);
   expect(notFound.headers()["x-vinext-cache"]).toBe("HIT");
   expect(await notFound.json()).toEqual({ notFound: true });
-  const frenchRoot = await request.get("http://localhost:4217/fr/");
+  const frenchRoot = await request.get(`${i18nBaseURL}/fr/`);
   expectHit(frenchRoot);
   expect(await frenchRoot.text()).toContain('id="locale">fr</p>');
 });
@@ -315,15 +336,14 @@ test("default-locale paths named after locales keep their own terminal snapshots
 test("locale snapshots share encoded and trailing-slash request identities", async ({
   request,
 }) => {
-  const errorFixture = path.resolve("tests/e2e/cloudflare-static-assets-pages/error-fixture");
-  const buildId = fs.readFileSync(path.join(errorFixture, "dist/server/BUILD_ID"), "utf8").trim();
+  const buildId = await readBuildId(request, `${i18nBaseURL}/`);
   for (const prefix of ["", "/en", "/fr"]) {
     for (const slug of ["first", "%66irst"]) {
-      const response = await request.get(`http://localhost:4217${prefix}/posts/${slug}/`);
+      const response = await request.get(`${i18nBaseURL}${prefix}/posts/${slug}/`);
       expectHit(response);
       expect(await response.text()).toContain('id="render-source">build-time</p>');
       const data = await request.get(
-        `http://localhost:4217/_next/data/${buildId}${prefix}/posts/${slug}.json`,
+        `${i18nBaseURL}/_next/data/${buildId}${prefix}/posts/${slug}.json`,
       );
       expectHit(data);
       expect((await data.json()).pageProps.locale).toBe(prefix === "/fr" ? "fr" : "en");
@@ -334,7 +354,7 @@ test("locale snapshots share encoded and trailing-slash request identities", asy
 test("rewrites serve public assets but cannot expose private cache artifacts", async ({
   request,
 }) => {
-  const artifacts = fs.readdirSync(cacheDir);
+  const artifacts = listArtifacts();
   for (const phase of ["before", "after", "fallback"]) {
     for (const [pathname, body] of [
       ["visible.txt", "Public fixture asset\n"],
