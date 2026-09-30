@@ -140,3 +140,37 @@ test("private artifacts remain inaccessible and the custom 404 keeps its status"
   expect(html).toContain("Static Assets page not found");
   expect(html).toContain('id="render-source">build-time</p>');
 });
+
+// Next.js keeps the prerendered not-found document separate from runtime errors.
+// https://github.com/vercel/next.js/blob/canary/test/e2e/500-page/500-page-build.test.ts
+test("custom _error uses its 404 snapshot without reusing it for server errors", async ({
+  request,
+}) => {
+  const missing = await request.get("http://localhost:4217/missing");
+  expect(missing.status()).toBe(404);
+  expect(missing.headers()["x-vinext-cache"]).toBe("HIT");
+  expect(await missing.text()).toContain('id="render-source">build-time</p>');
+
+  const failure = await request.get("http://localhost:4217/dynamic?fail=1");
+  expect(failure.status()).toBe(500);
+  expect(failure.headers()["x-vinext-cache"]).not.toBe("HIT");
+  expect(await failure.text()).toContain('id="render-source">runtime</p>');
+});
+
+// Domain contexts can change defaultLocale and generated links even for the
+// same locale. Generic build snapshots must not be aliased across domains.
+test("i18n domains render their own context instead of a locale-only snapshot", async ({
+  request,
+}) => {
+  for (const [host, defaultLocale] of [
+    ["en.example", "en"],
+    ["fr.example", "fr"],
+  ]) {
+    const response = await request.get("http://localhost:4217/en", { headers: { Host: host } });
+    expect(response.status()).toBe(200);
+    expect(response.headers()["x-vinext-cache"]).not.toBe("HIT");
+    const html = await response.text();
+    expect(html).toContain('id="locale">en</p>');
+    expect(html).toContain(`id="default-locale">${defaultLocale}</p>`);
+  }
+});

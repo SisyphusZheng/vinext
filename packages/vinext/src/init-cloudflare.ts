@@ -57,9 +57,6 @@ export function validateCloudflarePlatformSetup(
   context: CloudflarePlatformSetupContext,
   cloudflare: CloudflareInitOptions,
 ): void {
-  if (cloudflare.cdnCache === "static-assets" && !context.isAppRouter) {
-    throw new Error("The Static Assets cache currently requires an App Router project.");
-  }
   if (!cloudflare.legacyWrangler) {
     const existingWrangler = [
       "wrangler.toml",

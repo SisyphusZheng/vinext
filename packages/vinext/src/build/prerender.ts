@@ -843,6 +843,8 @@ export async function prerenderPages({
             // pagesBundlePath is guaranteed non-null: the guard above ensures
             // either _prodServer or pagesBundlePath is provided.
             outDir: path.dirname(path.dirname(pagesBundlePath!)),
+            serverDir: path.dirname(pagesBundlePath!),
+            serverEntryPath: pagesBundlePath,
             noCompression: true,
             purpose: "prerender",
           });
@@ -1070,7 +1072,12 @@ export async function prerenderPages({
       const poolSize = resolvePrerenderPoolSize(pagesToRender.length, concurrency);
       if (poolSize > 1) {
         const poolOutDir = path.dirname(path.dirname(pagesBundlePath));
-        renderPool = await startOptionalPrerenderServerPool(poolOutDir, poolSize);
+        renderPool = await startOptionalPrerenderServerPool(
+          poolOutDir,
+          poolSize,
+          undefined,
+          path.dirname(pagesBundlePath),
+        );
         if (renderPool) renderPorts = renderPool.ports;
       }
     }

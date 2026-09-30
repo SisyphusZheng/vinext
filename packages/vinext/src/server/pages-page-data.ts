@@ -398,6 +398,8 @@ type ResolvePagesPageDataRenderResult = {
 type ResolvePagesPageDataResponseResult = {
   kind: "response";
   response: Response;
+  /** The response bypassed user rendering and its request/response context. */
+  fromCache?: true;
   /** False when an on-demand request must be reported as a failed revalidation. */
   onDemandRevalidateSuccess?: boolean;
 };
@@ -1044,6 +1046,7 @@ function applyBotETagAndCheck(
   if (!noCacheRequested && options.ifNoneMatch && matchesIfNoneMatch(options.ifNoneMatch, etag)) {
     return {
       kind: "response",
+      fromCache: true,
       response: new Response(null, {
         status: 304,
         headers: cachedResponse.headers,
@@ -1251,8 +1254,12 @@ export async function resolvePagesPageData(
             value.headers,
           );
       return options.isDataReq
-        ? { kind: "response", response }
-        : (applyBotETagAndCheck(response, value.html, options) ?? { kind: "response", response });
+        ? { kind: "response", response, fromCache: true }
+        : (applyBotETagAndCheck(response, value.html, options) ?? {
+            kind: "response",
+            response,
+            fromCache: true,
+          });
     }
   }
 
@@ -1592,6 +1599,7 @@ export async function resolvePagesPageData(
       if (cachedRedirect) {
         return {
           kind: "response",
+          fromCache: true,
           response: applyCachedPagesRepresentationHeaders(
             buildCachedPagesRedirectResponse(cachedRedirect, options),
             "HIT",
@@ -1610,6 +1618,7 @@ export async function resolvePagesPageData(
         );
         return {
           kind: "response",
+          fromCache: true,
           response: applyCachedPagesRepresentationHeaders(response, "HIT", cached.value, options),
         };
       }
@@ -1650,6 +1659,7 @@ export async function resolvePagesPageData(
       if (hitBotResult) return hitBotResult;
       return {
         kind: "response",
+        fromCache: true,
         response: hitResponse,
       };
     }
@@ -1675,6 +1685,7 @@ export async function resolvePagesPageData(
       if (cachedRedirect) {
         return {
           kind: "response",
+          fromCache: true,
           response: applyCachedPagesRepresentationHeaders(
             buildCachedPagesRedirectResponse(cachedRedirect, options),
             "STALE",
@@ -1693,6 +1704,7 @@ export async function resolvePagesPageData(
         );
         return {
           kind: "response",
+          fromCache: true,
           response: applyCachedPagesRepresentationHeaders(response, "STALE", cached.value, options),
         };
       }
@@ -1727,6 +1739,7 @@ export async function resolvePagesPageData(
       if (staleBotResult) return staleBotResult;
       return {
         kind: "response",
+        fromCache: true,
         response: staleResponse,
       };
     }

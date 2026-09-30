@@ -260,21 +260,33 @@ describe("createPagesPageHandler — route miss", () => {
     expect(await response.text()).toBe("prebuilt error");
   });
 
-  it("reads an automatically static custom 404 under its own prerender key", async () => {
-    const adapter = Object.assign(new DefaultCdnCacheAdapter(), { hasPrerenderedPages: true });
-    const get = vi.spyOn(adapter, "get").mockResolvedValue({
-      lastModified: 0,
-      cacheControl: { revalidate: false },
-      value: { kind: "PAGES", html: "prebuilt 404", pageData: {}, status: 404, headers: undefined },
-    });
-    setCdnCacheAdapter(adapter);
-    const handler = createPagesPageHandler(makeOpts({ pageRoutes: [makeRoute("/404")] }));
-    const response = await handler(makeRequest("/missing"), "/missing", null, null, null);
-    expect(get).toHaveBeenCalledExactlyOnceWith(isrCacheKey("pages", "/404", "test-build-id"));
-    expect(response.status).toBe(404);
-    expect(response.headers.get("x-vinext-cache")).toBe("HIT");
-    expect(await response.text()).toBe("prebuilt 404");
-  });
+  it.each(["/404", "/_error"])(
+    "reads %s not-found HTML under its prerender key",
+    async (pattern) => {
+      const adapter = Object.assign(new DefaultCdnCacheAdapter(), { hasPrerenderedPages: true });
+      const get = vi.spyOn(adapter, "get").mockResolvedValue({
+        lastModified: 0,
+        cacheControl: { revalidate: false },
+        value: {
+          kind: "PAGES",
+          html: "prebuilt 404",
+          pageData: {},
+          status: 404,
+          headers: undefined,
+        },
+      });
+      setCdnCacheAdapter(adapter);
+      const route = makeRoute(pattern);
+      const handler = createPagesPageHandler(
+        makeOpts({ pageRoutes: [route], errorPageRoute: pattern === "/_error" ? route : null }),
+      );
+      const response = await handler(makeRequest("/missing"), "/missing", null, null, null);
+      expect(get).toHaveBeenCalledExactlyOnceWith(isrCacheKey("pages", "/404", "test-build-id"));
+      expect(response.status).toBe(404);
+      expect(response.headers.get("x-vinext-cache")).toBe("HIT");
+      expect(await response.text()).toBe("prebuilt 404");
+    },
+  );
 
   it("returns default 404 when no custom 404 page and no _error page", async () => {
     const handler = createPagesPageHandler(makeOpts({ pageRoutes: [] }));
@@ -799,9 +811,11 @@ describe("createPagesPageHandler — preview responses", () => {
     ]);
   });
 
-  it.each([false, true])(
-    "preserves getServerSideProps notFound headers (prerendered 404: %s)",
-    async (prerendered) => {
+  it.each(
+    [false, true].flatMap((prerendered) => [false, true].map((gsp) => ({ prerendered, gsp }))),
+  )(
+    "preserves getServerSideProps notFound headers (prerendered: $prerendered, GSP: $gsp)",
+    async ({ prerendered, gsp }) => {
       // Next.js keeps one ServerResponse while rendering the source and 404
       // pages, so headers set before `notFound: true` remain on the response.
       // https://github.com/vercel/next.js/blob/canary/packages/next/src/server/route-modules/pages/pages-handler.ts
@@ -822,7 +836,10 @@ describe("createPagesPageHandler — preview responses", () => {
           },
         }),
       );
-      const notFoundRoute = makeRoute("/404");
+      const notFoundRoute = makeRoute(
+        "/404",
+        makePageModule(gsp ? { getStaticProps: () => ({ props: {} }) } : {}),
+      );
       if (prerendered) {
         const adapter = Object.assign(new DefaultCdnCacheAdapter(), { hasPrerenderedPages: true });
         vi.spyOn(adapter, "get").mockResolvedValue({

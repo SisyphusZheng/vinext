@@ -99,6 +99,7 @@ describe("default cf init build", () => {
     ["workers-cache", "app", "workers-cache", undefined],
     ["workers-cache-kv", "app", "workers-cache", undefined],
     ["static-assets", "app", "static-assets", undefined],
+    ["pages-static-assets", "pages", "static-assets", undefined],
     ["kv", "app", "data-cache", undefined],
     ["pages", "pages", "none", undefined],
   ] as const)(
@@ -210,7 +211,7 @@ describe("default cf init build", () => {
           ? `cf deploy --prebuilt --mode production --worker init-cf-${name}-response-store`
           : undefined,
       );
-      if (name === "service-binding" || name === "pages" || name === "static-assets") {
+      if (name === "service-binding" || name === "pages" || cdnCache === "static-assets") {
         const preview = spawn(
           path.join(webRoot, "node_modules", ".bin", "vite"),
           ["preview", "--host", "127.0.0.1", "--port", "0"],
@@ -247,17 +248,23 @@ describe("default cf init build", () => {
           const html = await response.text();
           expect(html).toContain("cf init smoke test");
           if (hasCssModules) expect(html).toMatch(/class="_card_[a-f0-9]{7}"/);
-          if (name === "static-assets") {
+          if (cdnCache === "static-assets") {
             expect(response.headers.get("x-vinext-cache")).toBe("HIT");
-            const rsc = await fetch(url, { headers: { Accept: "text/x-component", RSC: "1" } });
-            expect(rsc.status).toBe(200);
-            expect(rsc.headers.get("x-vinext-cache")).toBe("HIT");
-            expect(await rsc.text()).toContain("cf init smoke test");
+            if (router === "app") {
+              const rsc = await fetch(url, { headers: { Accept: "text/x-component", RSC: "1" } });
+              expect(rsc.status).toBe(200);
+              expect(rsc.headers.get("x-vinext-cache")).toBe("HIT");
+              expect(await rsc.text()).toContain("cf init smoke test");
+            }
             const cachePath = "/_vinext/static-cache";
             const artifacts = fs.readdirSync(path.join(workersDir, "default/assets", cachePath));
             expect(artifacts).toContain("index.json");
-            expect(artifacts.some((file) => file.endsWith(".html"))).toBe(true);
-            expect(artifacts.some((file) => file.endsWith(".rsc"))).toBe(true);
+            if (router === "app") {
+              expect(artifacts.some((file) => file.endsWith(".html"))).toBe(true);
+              expect(artifacts.some((file) => file.endsWith(".rsc"))).toBe(true);
+            } else {
+              expect(artifacts.some((file) => file.endsWith(".pages"))).toBe(true);
+            }
             for (const file of artifacts) {
               const privateAsset = await fetch(new URL(`${cachePath}/${file}`, url));
               expect(privateAsset.status, file).toBe(404);

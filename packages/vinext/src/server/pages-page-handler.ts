@@ -708,10 +708,14 @@ export function createPagesPageHandler(
         // custom 404 module (and its getStaticProps) runs. Keep this separate
         // from routeUrl so router, _document, and getInitialProps contexts
         // continue to observe the original request-facing URL.
+        // The prerenderer stores _error's 404 document as /404; its 500
+        // representation must never reuse that snapshot.
         const isrCachePathname =
           (isStaticPropsRender || pagesReadiness.autoExport) &&
           (routePattern === "/404" || routePattern === "/500" || routePattern === "/_error")
-            ? routePattern
+            ? routePattern === "/_error" && renderStatusCode === 404
+              ? "/404"
+              : routePattern
             : renderRouteUrl.split("?")[0];
         const isNotFoundErrorRender =
           routePattern === "/404" || (routePattern === "/_error" && renderStatusCode === 404);
@@ -1023,8 +1027,8 @@ export function createPagesPageHandler(
             isOnDemandRevalidate && pageDataResult.onDemandRevalidateSuccess !== false
               ? withPagesCacheState(pageDataResult.response, "REVALIDATED", isrCachePathname)
               : pageDataResult.response;
-          if (pagesReadiness.autoExport) {
-            // Cached static pages bypass createPageReqRes. User-ended responses
+          if (pageDataResult.fromCache) {
+            // Cached pages bypass createPageReqRes. User-ended responses
             // already inherited these headers and may have replaced them.
             response = mergePagesNotFoundSourceHeaders(response, options?.__notFoundSourceHeaders);
           }

@@ -10,7 +10,9 @@ The project builds this checked-in fixture, prerenders its pages, packages the
 Static Assets cache, and starts the built Worker in local workerd. Chromium
 verifies client navigation without reloading the document. HTTP tests cover
 static HTML, Pages data, dynamic paths, preview mode, immutable snapshots,
-runtime-only routes, and private cache files.
+runtime-only routes, GSP error-page cookies, and private cache files. A second
+checked-in fixture exercises custom `_error` snapshots separately from 500
+responses and verifies that i18n domains retain their own runtime context.
 
 The fixture reuses the installed `cf-app-basic` dependencies through a symlink
 created by the Playwright server command. Its preview and revalidation API

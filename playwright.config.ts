@@ -324,6 +324,16 @@ const projectServers = {
       reuseExistingServer: !process.env.CI,
       timeout: 180_000,
     },
+    additionalServers: [
+      {
+        command:
+          "(test -e node_modules || test -L node_modules || ln -s ../../../fixtures/cf-app-basic/node_modules node_modules) && npx vp run vinext#build && npx vp run @vinext/cloudflare#build && node ../../../../packages/vinext/dist/cli.js build && npx wrangler dev --config dist/server/wrangler.json --port 4217",
+        cwd: "./tests/e2e/cloudflare-static-assets-pages/error-fixture",
+        port: 4217,
+        reuseExistingServer: !process.env.CI,
+        timeout: 180_000,
+      },
+    ],
   },
   "cloudflare-static-export": {
     testDir: "./tests/e2e/cloudflare-static-export",

@@ -1043,20 +1043,38 @@ export default { plugins: [vinext({ cache: { cdn: customCdn() } })] };
     expect(snapshotProject(tmpDir)).toBe(before);
   });
 
-  it("rejects the Static Assets cache for Pages Router projects", async () => {
-    setupProject(tmpDir, { router: "pages" });
+  it.each([false, true])(
+    "configures Static Assets for Pages Router projects (legacy Wrangler: %s)",
+    async (legacyWrangler) => {
+      setupProject(tmpDir, { router: "pages" });
 
-    await expect(
-      runInit(tmpDir, {
+      await runInit(tmpDir, {
         cloudflare: {
           dataCache: "none",
           cdnCache: "static-assets",
           imageOptimization: "none",
+          legacyWrangler,
         },
-      }),
-    ).rejects.toThrow("Static Assets cache currently requires an App Router project");
-    expect(fs.existsSync(path.join(tmpDir, "vite.config.ts"))).toBe(false);
-  });
+      });
+
+      const vite = readFile(tmpDir, "vite.config.ts");
+      expect(vite).toContain("cdn: staticAssetsAdapter()");
+      expect(vite).toContain('prerender: { routes: "*" }');
+      if (legacyWrangler) {
+        expect(JSON.parse(readFile(tmpDir, "wrangler.jsonc"))).toMatchObject({
+          assets: {
+            directory: "dist/client",
+            binding: "ASSETS",
+            run_worker_first: ["/_vinext/static-cache/*"],
+          },
+        });
+      } else {
+        const config = readFile(tmpDir, "cloudflare.config.ts");
+        expect(config).toContain("ASSETS: bindings.assets()");
+        expect(config).toContain('runWorkerFirst: ["/_vinext/static-cache/*"]');
+      }
+    },
+  );
 
   it("generates Node vite.config.ts with prerender when opted in", async () => {
     setupProject(tmpDir, { router: "pages" });
