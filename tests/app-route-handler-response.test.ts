@@ -426,7 +426,7 @@ describe("route handler responses route through the CDN cache adapter", () => {
 
     applyRouteHandlerRevalidateHeader(response, 60, 600, ["_N_T_/api/feed", "posts"]);
 
-    expect(response.headers.get("Cache-Control")).toBe("public, max-age=0, must-revalidate");
+    expect(response.headers.get("Cache-Control")).toBe("private, max-age=0, must-revalidate");
     expect(response.headers.get("CDN-Cache-Control")).toBeNull();
     expect(response.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
       "public, max-age=60, stale-while-revalidate=540",

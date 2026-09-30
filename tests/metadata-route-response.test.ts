@@ -1191,24 +1191,21 @@ describe("metadata route cacheability registration", () => {
     expect(state.route).toBeUndefined();
   });
 
-  it("records a public policy set by the route's own Response as explicit", async () => {
-    const { response, state } = await handleWithAdmission("/event/london/42/opengraph-image", [
-      dynamicImageRoute(
-        () => new Response("png", { headers: { "Cache-Control": "public, max-age=31536000" } }),
-      ),
-    ]);
+  it.each(["public, max-age=31536000", "no-store", "private, max-age=300"])(
+    "records authored %s independently of shared admission",
+    async (policy) => {
+      const { response, state } = await handleWithAdmission("/event/london/42/opengraph-image", [
+        dynamicImageRoute(() => new Response("png", { headers: { "Cache-Control": policy } })),
+      ]);
 
-    expect(response?.headers.get("cache-control")).toBe("public, max-age=31536000");
-    expect(state.explicitResponseCachePolicy).toBe(true);
-  });
+      expect(response?.headers.get("cache-control")).toBe(policy);
+      expect(state.explicitResponseCachePolicy).toBe(true);
+    },
+  );
 
-  it.each([
-    ["the framework default", {}],
-    ["no-store", { "Cache-Control": "no-store" }],
-    ["private", { "Cache-Control": "private, max-age=60" }],
-  ])("does not record %s as an explicit policy", async (_label, headers) => {
+  it("does not record the framework default as an explicit policy", async () => {
     const { state } = await handleWithAdmission("/event/london/42/opengraph-image", [
-      dynamicImageRoute(() => new Response("png", { headers })),
+      dynamicImageRoute(() => new Response("png")),
     ]);
 
     expect(state.route?.kind).toBe("app-route");
