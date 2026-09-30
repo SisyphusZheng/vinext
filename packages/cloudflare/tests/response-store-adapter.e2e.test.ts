@@ -990,9 +990,15 @@ describe("Cloudflare Workers Response Store adapter", () => {
 
   test("keeps the active response when background regeneration becomes non-cacheable", async () => {
     const pathname = `/api/revalidation-policy?key=${crypto.randomUUID()}`;
-    const seeded = await request(pathname, { headers: { "x-cacheability-seed": "1" } });
+    const prepared = await request(pathname, { method: "POST" });
+    assert.equal(prepared.status, 204);
+    const seeded = await request(pathname);
     const seededBody = await seeded.text();
     assert.equal(seeded.headers.get("x-vinext-cache"), "MISS");
+    assert.equal(seeded.headers.get("cache-control"), "no-store");
+    const hit = await request(pathname);
+    assert.equal(hit.headers.get("x-vinext-cache"), "HIT");
+    assert.equal(await hit.text(), seededBody);
 
     await new Promise((resolve) => setTimeout(resolve, 1_100));
 
@@ -1000,6 +1006,7 @@ describe("Cloudflare Workers Response Store adapter", () => {
     assert.equal(await stale.text(), seededBody);
 
     await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(await (await request(pathname)).text(), seededBody);
 
     const bucket = await miniflare.getR2Bucket("CACHE_BODIES", "cache");
     const objects = await bucket.list();

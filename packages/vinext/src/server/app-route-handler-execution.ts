@@ -1,3 +1,4 @@
+import { isFullyBufferedBody } from "./fully-buffered-response.js";
 import type { NextI18nConfig } from "../config/next-config.js";
 import { patternToNextFormat } from "../routing/route-validation.js";
 import {
@@ -133,6 +134,9 @@ function hasExplicitCacheableResponsePolicy(headers: Headers): boolean {
 export async function completeAppRouteHandlerResponse(
   response: Response,
 ): Promise<CompletedAppRouteHandlerResponse> {
+  // Framework metadata serializers already completed their in-memory body.
+  // Keep its runtime length and close-tracking metadata instead of rewrapping.
+  if (isFullyBufferedBody(response)) return { completed: true, response };
   // Match Next.js static App Route generation: resolve only after clean EOF,
   // then rebuild the response from the completed body. Besides making the ISR
   // artifact deterministic, this keeps request tracking active for stream

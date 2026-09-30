@@ -2065,7 +2065,7 @@ describe("createAppRscHandler", () => {
     },
   );
 
-  it("clears shared Pages stage metadata when outer config makes the response private", async () => {
+  it("retains shared Pages storage policy when outer config makes the browser response private", async () => {
     const adapter: CdnCacheAdapter = {
       ownsBackgroundRevalidation: false,
       responsePolicy: {
@@ -2122,8 +2122,8 @@ describe("createAppRscHandler", () => {
 
       expect(dispatchResponseStage.mock.calls[0]?.[2]).toEqual({ cache: "shared" });
       expect(response.headers.get("cache-control")).toBe("private, no-store");
-      expect(response.headers.get("cdn-cache-control")).toBeNull();
-      expect(response.headers.get("cache-tag")).toBeNull();
+      expect(response.headers.get("cdn-cache-control")).toBe("public, max-age=60");
+      expect(response.headers.get("cache-tag")).toBe("pages");
     } finally {
       setCdnCacheAdapter(new DefaultCdnCacheAdapter());
     }
