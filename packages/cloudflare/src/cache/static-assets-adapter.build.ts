@@ -131,9 +131,12 @@ export function finalizeStaticAssetsPrerenderOutput(
       if (!nextData.props || typeof nextData.props !== "object") {
         throw new Error(`[vinext] Missing prerendered Pages props for ${pathname}`);
       }
+      // Pages cache keys use URL.pathname, retaining escaped dynamic params.
+      // App prerender keys above deliberately use their decoded normalization.
+      const pagesPathname = new URL(`https://vinext.invalid${pathname}`).pathname;
       const keyPathname = nextData.locale
-        ? `${cachePathname}::i18n=${encodeURIComponent(`locale:${nextData.locale}`)}`
-        : cachePathname;
+        ? `${pagesPathname}::i18n=${encodeURIComponent(`locale:${nextData.locale}`)}`
+        : pagesPathname;
       count += Number(
         writeCacheAsset(
           outputDir,
@@ -143,7 +146,9 @@ export function finalizeStaticAssetsPrerenderOutput(
           sourcePath,
           {
             ...route,
-            responseStatus: route.responseStatus ?? (route.route === "/404" ? 404 : 200),
+            responseStatus:
+              route.responseStatus ??
+              (route.route === "/404" ? 404 : route.route === "/500" ? 500 : 200),
           },
           JSON.stringify({ html, pageData: nextData.props }),
         ),

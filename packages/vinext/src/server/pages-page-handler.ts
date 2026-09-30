@@ -1023,6 +1023,11 @@ export function createPagesPageHandler(
             isOnDemandRevalidate && pageDataResult.onDemandRevalidateSuccess !== false
               ? withPagesCacheState(pageDataResult.response, "REVALIDATED", isrCachePathname)
               : pageDataResult.response;
+          if (pagesReadiness.autoExport) {
+            // Cached static pages bypass createPageReqRes. User-ended responses
+            // already inherited these headers and may have replaced them.
+            response = mergePagesNotFoundSourceHeaders(response, options?.__notFoundSourceHeaders);
+          }
           if (shouldApplyErrorResponsePolicy) {
             response = applyPagesErrorCachePolicy(
               response,

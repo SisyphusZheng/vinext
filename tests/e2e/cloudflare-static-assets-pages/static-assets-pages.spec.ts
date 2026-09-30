@@ -16,7 +16,12 @@ test("prerendered Pages HTML and navigation JSON are build-time cache hits", asy
   request,
 }) => {
   const buildId = fs.readFileSync(path.join(fixture, "dist/server/BUILD_ID"), "utf8").trim();
-  for (const pathname of ["/posts/first", "/posts/second"]) {
+  for (const pathname of [
+    "/posts/first",
+    "/posts/second",
+    "/posts/caf%C3%A9",
+    "/posts/with%20space",
+  ]) {
     const response = await request.get(`${pathname}?source=first`);
     expectHit(response);
     const html = await response.text();
@@ -89,6 +94,34 @@ test("preview bypasses the prerendered page", async ({ request }) => {
   expect(response.status()).toBe(200);
   expect(response.headers()["x-vinext-cache"]).not.toBe("HIT");
   expect(await response.text()).toContain('id="render-source">preview</p>');
+});
+
+// https://github.com/vercel/next.js/blob/canary/test/e2e/500-page/500-page-build.test.ts
+test("a prerendered custom 500 preserves the server error status", async ({ request }) => {
+  for (const pathname of ["/dynamic?fail=1", "/500"]) {
+    const response = await request.get(pathname);
+    expect(response.status()).toBe(500);
+    expect(response.headers()["x-vinext-cache"]).toBe("HIT");
+    const html = await response.text();
+    expect(html).toContain("Static Assets server error");
+    expect(html).toContain('id="render-source">build-time</p>');
+  }
+});
+
+test("a prerendered 404 retains source response cookies without persisting them", async ({
+  request,
+}) => {
+  const response = await request.get("/dynamic?missing=1");
+  expect(response.status()).toBe(404);
+  expect(response.headers()["x-vinext-cache"]).toBe("HIT");
+  expect(response.headers()["set-cookie"]).toContain("session=expired");
+  expect(response.headers()["x-not-found-source"]).toBe("dynamic-page");
+  expect(await response.text()).toContain('id="render-source">build-time</p>');
+
+  const other = await request.get("/missing-page");
+  expect(other.status()).toBe(404);
+  expect(other.headers()["set-cookie"]).toBeUndefined();
+  expect(other.headers()["x-not-found-source"]).toBeUndefined();
 });
 
 test("private artifacts remain inaccessible and the custom 404 keeps its status", async ({

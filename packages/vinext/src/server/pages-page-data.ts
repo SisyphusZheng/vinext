@@ -1247,7 +1247,7 @@ export async function resolvePagesPageData(
             undefined,
             options.expireSeconds,
             cached.value.cacheControl,
-            value.status,
+            options.statusCode ?? value.status,
             value.headers,
           );
       return options.isDataReq

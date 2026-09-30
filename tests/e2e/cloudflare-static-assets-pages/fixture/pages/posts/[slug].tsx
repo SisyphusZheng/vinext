@@ -1,7 +1,7 @@
 import type { GetStaticPaths, GetStaticProps, InferGetStaticPropsType } from "next";
 
 export const getStaticPaths: GetStaticPaths = () => ({
-  paths: [{ params: { slug: "first" } }, { params: { slug: "second" } }],
+  paths: ["first", "second", "café", "with space"].map((slug) => ({ params: { slug } })),
   fallback: "blocking",
 });
 

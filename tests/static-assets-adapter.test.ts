@@ -114,12 +114,17 @@ describe("staticAssetsAdapter", () => {
     },
   );
 
-  it.each([false, true])(
-    "packages Pages HTML and the complete props envelope (trailingSlash: %s)",
-    async (trailingSlash) => {
+  it.each(
+    [false, true].flatMap((trailingSlash) =>
+      ["first", "café", "with space"].map((slug) => ({ trailingSlash, slug })),
+    ),
+  )(
+    "packages Pages HTML and the complete props envelope (trailingSlash: $trailingSlash, slug: $slug)",
+    async ({ trailingSlash, slug }) => {
       const root = createRoot();
+      const pathname = `/posts/${encodeURIComponent(slug)}`;
       const props = {
-        pageProps: { slug: "first", text: "</script>" },
+        pageProps: { slug, text: "</script>" },
         appValue: "preserved",
         __N_SSG: true,
       };
@@ -134,7 +139,7 @@ describe("staticAssetsAdapter", () => {
           routes: [
             {
               route: "/posts/:slug",
-              path: "/posts/first",
+              path: pathname,
               status: "rendered",
               revalidate: 1,
               router: "pages",
@@ -144,7 +149,7 @@ describe("staticAssetsAdapter", () => {
       );
       write(
         root,
-        `dist/server/prerendered-routes/posts/first${trailingSlash ? "/index" : ""}.html`,
+        `dist/server/prerendered-routes${pathname}${trailingSlash ? "/index" : ""}.html`,
         html,
       );
       const descriptor = staticAssetsAdapter();
@@ -161,7 +166,7 @@ describe("staticAssetsAdapter", () => {
           },
         },
       });
-      const key = isrCacheKey("pages", "/posts/first", "build-a");
+      const key = isrCacheKey("pages", pathname, "build-a");
       const cached = await adapter.get(key);
       expect(cached).toMatchObject({
         cacheControl: { revalidate: 1 },
