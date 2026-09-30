@@ -7,7 +7,12 @@ import {
   finalizeCacheAdapterPrerenderOutput,
   hasCacheAdapterPrerenderOutput,
 } from "../packages/vinext/src/cache/cache-adapters-virtual.js";
-import { appIsrCacheKey, pagesIsrCacheKey } from "../packages/vinext/src/server/isr-cache.js";
+import {
+  appIsrCacheKey,
+  pagesIsrCacheKey,
+  isrGet,
+} from "../packages/vinext/src/server/isr-cache.js";
+import { getCdnCacheAdapter, setCdnCacheAdapter } from "../packages/vinext/src/shims/cdn-cache.js";
 import { staticAssetsAdapter } from "../packages/cloudflare/src/cache/static-assets-adapter.js";
 import createStaticAssetsCacheAdapter, {
   StaticAssetsCacheAdapter,
@@ -179,6 +184,15 @@ describe("staticAssetsAdapter", () => {
       await adapter.set(key, null);
       await adapter.revalidateTag("_N_T_/posts/first");
       expect(await adapter.get(key)).toEqual(cached);
+      const previousAdapter = getCdnCacheAdapter();
+      setCdnCacheAdapter(adapter);
+      try {
+        // Freshness is adapter-owned. A finite revalidate in an immutable
+        // artifact must remain HIT even after its age exceeds that duration.
+        expect(await isrGet(key)).toEqual({ value: cached, isStale: false });
+      } finally {
+        setCdnCacheAdapter(previousAdapter);
+      }
       expect(await adapter.get(pagesIsrCacheKey("/posts/missing", "build-a"))).toBeNull();
     },
   );

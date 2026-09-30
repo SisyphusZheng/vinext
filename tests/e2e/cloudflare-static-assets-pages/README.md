@@ -12,7 +12,7 @@ verifies client navigation without reloading the document. HTTP tests cover
 static HTML, Pages data, dynamic paths, preview mode, immutable snapshots,
 runtime-only routes, immutable redirects and not-found results, GSP error-page
 cookies, equivalent URL encodings, escaped delimiter isolation, and private cache
-files behind each rewrite phase. A second
+files behind each rewrite phase, using a custom `STATIC` binding. A second
 checked-in fixture exercises custom `_error` snapshots separately from 500
 responses, locale-prefixed prerendering, trailing slashes, default-locale paths
 named after locales, and i18n domains retaining their own runtime context.

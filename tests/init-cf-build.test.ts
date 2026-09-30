@@ -139,6 +139,14 @@ describe("default cf init build", () => {
           }),
         );
       }
+      if (legacyWrangler) {
+        fs.mkdirSync(path.join(root, "public"));
+        fs.writeFileSync(path.join(root, "public", "rewrite-target.txt"), "custom assets rewrite");
+        fs.writeFileSync(
+          path.join(root, "next.config.ts"),
+          'export default { async rewrites() { return [{ source: "/public-alias", destination: "/rewrite-target.txt" }]; } };',
+        );
+      }
       if (router === "app") {
         fs.writeFileSync(
           path.join(root, "app", "layout.tsx"),
@@ -283,6 +291,14 @@ describe("default cf init build", () => {
           const html = await response.text();
           expect(html).toContain("cf init smoke test");
           if (hasCssModules) expect(html).toMatch(/class="_card_[a-f0-9]{7}"/);
+          if (legacyWrangler) {
+            // Next.js resolves public files after config rewrites; the Worker
+            // must use the same custom binding as its Static Assets cache.
+            // https://github.com/vercel/next.js/blob/canary/test/e2e/custom-routes/custom-routes.test.ts
+            const rewritten = await fetch(new URL("/public-alias", url));
+            expect(rewritten.status).toBe(200);
+            expect(await rewritten.text()).toBe("custom assets rewrite");
+          }
           if (cdnCache === "static-assets") {
             expect(response.headers.get("x-vinext-cache")).toBe("HIT");
             if (router === "app") {

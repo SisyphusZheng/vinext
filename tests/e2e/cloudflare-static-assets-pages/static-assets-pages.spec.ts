@@ -83,6 +83,11 @@ test("finite ISR and on-demand revalidation leave the packaged snapshot unchange
   const response = await request.get("/posts/first");
   expectHit(response);
   expect(await response.text()).toBe(snapshot);
+  // This path list exists only at build time. Its finite TTL must not turn
+  // immutable packaged entries into misses that rerun runtime getStaticPaths.
+  const buildOnly = await request.get("http://localhost:4217/fr/posts/first/");
+  expectHit(buildOnly);
+  expect(await buildOnly.text()).toContain('id="render-source">build-time</p>');
 });
 
 test("SSR and unlisted fallback paths render at runtime without being persisted", async ({

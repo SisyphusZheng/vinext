@@ -26,6 +26,7 @@
  */
 
 import type { CacheHandlerValue, IncrementalCacheValue } from "./cache-handler.js";
+import type { VinextAssetFetcher } from "../server/multi-stage.js";
 import { getExplicitCdnCacheAdapter } from "./cdn-cache-state.js";
 export { setCdnCacheAdapter } from "./cdn-cache-state.js";
 
@@ -176,6 +177,9 @@ export type CdnCacheAdapter = {
 
   /** Also supplies build-time PAGES entries for pages without getStaticProps. */
   readonly hasPrerenderedPages?: boolean;
+
+  /** Optional host asset fetcher resolved by the adapter's platform bindings. */
+  readonly assets?: VinextAssetFetcher;
 
   /**
    * Persist a freshly-rendered page-level artifact.

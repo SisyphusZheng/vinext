@@ -49,7 +49,7 @@ export class StaticAssetsCacheAdapter implements CdnCacheAdapter {
   readonly ownsBackgroundRevalidation = false;
   private indexPromise: Promise<StaticAssetCacheIndex | null> | undefined;
 
-  constructor(private readonly assets: AssetFetcher) {}
+  constructor(readonly assets: AssetFetcher) {}
 
   private loadIndex(): Promise<StaticAssetCacheIndex | null> {
     return (this.indexPromise ??= this.assets

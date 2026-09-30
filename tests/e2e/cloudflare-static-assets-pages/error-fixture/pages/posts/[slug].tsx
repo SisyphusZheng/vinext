@@ -18,6 +18,7 @@ export function getStaticPaths({ locales, defaultLocale }: GetStaticPathsContext
 export function getStaticProps({ locale }: GetStaticPropsContext) {
   return {
     props: { locale, source: process.env.VINEXT_PRERENDER === "1" ? "build-time" : "runtime" },
+    revalidate: 1,
   };
 }
 

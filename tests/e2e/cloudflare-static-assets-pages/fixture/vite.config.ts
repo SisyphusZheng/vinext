@@ -8,7 +8,7 @@ import { staticAssetsAdapter } from "@vinext/cloudflare/cache/static-assets-adap
 export default defineConfig({
   environments: { ssr: { build: { outDir: "dist/server" } } },
   plugins: [
-    vinext({ prerender: true, cache: { cdn: staticAssetsAdapter() } }),
+    vinext({ prerender: true, cache: { cdn: staticAssetsAdapter({ binding: "STATIC" }) } }),
     cloudflare({ viteEnvironment: { name: "ssr" } }),
   ],
 });
