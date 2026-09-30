@@ -1,6 +1,8 @@
 import { defineConfig } from "vite";
-import vinext from "vinext";
-import { cloudflare } from "@cloudflare/vite-plugin";
+// Resolve workspace dependencies before the E2E runner creates the fixture's
+// node_modules link, so this config also typechecks in a clean checkout.
+import vinext from "../../../../packages/vinext/src/index.js";
+import { cloudflare } from "../../../fixtures/cf-app-basic/node_modules/@cloudflare/vite-plugin/dist/index.mjs";
 import { staticAssetsAdapter } from "@vinext/cloudflare/cache/static-assets-adapter";
 
 export default defineConfig({
