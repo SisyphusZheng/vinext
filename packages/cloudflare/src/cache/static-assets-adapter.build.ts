@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { appIsrCacheKey } from "vinext/internal/server/isr-cache";
+import { appIsrCacheKey, isrCacheKey } from "vinext/internal/server/isr-cache";
+import { extractVinextNextDataJson } from "vinext/internal/client/vinext-next-data";
 import {
   readPrerenderManifest,
   type PrerenderManifestRoute,
@@ -38,11 +39,12 @@ function writeCacheAsset(
   kind: StaticAssetCacheMetadata["kind"],
   sourcePath: string,
   route: PrerenderManifestRoute,
+  contents?: string,
 ): boolean {
   if (!fs.existsSync(sourcePath)) return false;
 
   const id = cacheAssetId(key);
-  const extension = kind === "html" ? "html" : kind === "rsc" ? "rsc" : "route";
+  const extension = kind;
   const policy = cacheControl(route);
   const metadata: StaticAssetCacheMetadata = {
     kind,
@@ -55,12 +57,14 @@ function writeCacheAsset(
   };
 
   fs.mkdirSync(outputDir, { recursive: true });
-  fs.copyFileSync(sourcePath, path.join(outputDir, `${id}.${extension}`));
+  const outputPath = path.join(outputDir, `${id}.${extension}`);
+  if (contents === undefined) fs.copyFileSync(sourcePath, outputPath);
+  else fs.writeFileSync(outputPath, contents);
   index[id] = metadata;
   return true;
 }
 
-/** Package App Router prerender output as immutable Workers Static Assets. */
+/** Package prerender output from both routers as immutable Workers Static Assets. */
 export function finalizeStaticAssetsPrerenderOutput(
   root: string,
   options: { clientOutDir?: string } = {},
@@ -103,6 +107,45 @@ export function finalizeStaticAssetsPrerenderOutput(
           "rsc",
           path.join(prerenderDir, getRscOutputPath(pathname)),
           route,
+        ),
+      );
+    } else if (route.router === "pages") {
+      const sourcePath = path.join(
+        prerenderDir,
+        getOutputPath(pathname, manifest.trailingSlash ?? false),
+      );
+      if (!fs.existsSync(sourcePath)) continue;
+      const html = fs.readFileSync(sourcePath, "utf8");
+      const json = extractVinextNextDataJson(html);
+      // Redirect export shells have no page data and must keep rendering normally.
+      if (json === null) continue;
+      const nextData = JSON.parse(json) as {
+        props?: object;
+        gsp?: boolean;
+        autoExport?: boolean;
+        locale?: string;
+      };
+      // Do not freeze getInitialProps/SSR pages that a source-only prerender
+      // classification may have admitted (for example, custom _app props).
+      if (nextData.gsp !== true && nextData.autoExport !== true) continue;
+      if (!nextData.props || typeof nextData.props !== "object") {
+        throw new Error(`[vinext] Missing prerendered Pages props for ${pathname}`);
+      }
+      const keyPathname = nextData.locale
+        ? `${cachePathname}::i18n=${encodeURIComponent(`locale:${nextData.locale}`)}`
+        : cachePathname;
+      count += Number(
+        writeCacheAsset(
+          outputDir,
+          index,
+          isrCacheKey("pages", keyPathname, manifest.buildId),
+          "pages",
+          sourcePath,
+          {
+            ...route,
+            responseStatus: route.responseStatus ?? (route.route === "/404" ? 404 : 200),
+          },
+          JSON.stringify({ html, pageData: nextData.props }),
         ),
       );
     } else if (route.router === "metadata") {

@@ -13,6 +13,7 @@
  */
 
 import type { ComponentType, ReactNode } from "react";
+import { getCdnCacheAdapter } from "vinext/shims/cdn-cache";
 import { mergeRouteParamsIntoQuery, parseQueryString as parseQuery } from "../utils/query.js";
 import { patternToNextFormat } from "../routing/route-validation.js";
 import { extractLocaleFromUrl, resolvePagesI18nRequest } from "./pages-i18n.js";
@@ -708,7 +709,7 @@ export function createPagesPageHandler(
         // from routeUrl so router, _document, and getInitialProps contexts
         // continue to observe the original request-facing URL.
         const isrCachePathname =
-          isStaticPropsRender &&
+          (isStaticPropsRender || pagesReadiness.autoExport) &&
           (routePattern === "/404" || routePattern === "/500" || routePattern === "/_error")
             ? routePattern
             : renderRouteUrl.split("?")[0];
@@ -906,6 +907,7 @@ export function createPagesPageHandler(
           i18n: buildI18nRenderContext(i18nConfig, locale, currentDefaultLocale, domainLocales),
           isrCacheKey: pageIsrCacheKey,
           isrGet: routeIsrGet,
+          hasPrerenderedPages: getCdnCacheAdapter().hasPrerenderedPages,
           isrSet: routeIsrSet,
           expireSeconds: vinextConfig.expireTime,
           isBuildTimePrerendering:

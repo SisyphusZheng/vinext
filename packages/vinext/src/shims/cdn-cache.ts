@@ -174,6 +174,9 @@ export type CdnCacheAdapter = {
    */
   get(key: string, ctx?: Record<string, unknown>): Promise<CacheHandlerValue | null>;
 
+  /** Also supplies build-time PAGES entries for pages without getStaticProps. */
+  readonly hasPrerenderedPages?: boolean;
+
   /**
    * Persist a freshly-rendered page-level artifact.
    *

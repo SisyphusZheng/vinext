@@ -268,6 +268,7 @@ export type ResolvePagesPageDataOptions = {
   i18n: PagesI18nRenderContext;
   isrCacheKey: (router: string, pathname: string) => string;
   isrGet: (key: string) => Promise<ISRCacheEntry | null>;
+  hasPrerenderedPages?: boolean;
   isrSet: (
     key: string,
     data: CachedPagesValue | CachedRedirectValue | null,
@@ -1211,6 +1212,49 @@ export async function resolvePagesPageData(
   let shouldPersistFallbackData = false;
   let onDemandPreviousCacheEntry: ISRCacheEntry | null | undefined;
   const previewData = options.isOnDemandRevalidate ? false : (options.previewData ?? false);
+
+  // Automatically static pages have no getStaticProps/ISR write path, but a
+  // read-only adapter can supply their build-time HTML (including custom 404s).
+  if (
+    options.hasPrerenderedPages &&
+    options.nextData?.autoExport &&
+    !options.scriptNonce &&
+    !options.isOnDemandRevalidate &&
+    previewData === false
+  ) {
+    const cached = await options.isrGet(
+      options.isrCacheKey("pages", options.isrCachePathname ?? options.routeUrl.split("?")[0]),
+    );
+    const value = cached?.value.value;
+    if (cached && !cached.isStale && !cached.isExpired && value?.kind === "PAGES") {
+      const response = options.isDataReq
+        ? applyCachedPagesRepresentationHeaders(
+            buildNextDataPropsJsonResponse(
+              normalizePagesRenderProps(value.pageData as Record<string, unknown>),
+              options.safeJsonStringify,
+              options.deploymentId
+                ? { headers: { [NEXTJS_DEPLOYMENT_ID_HEADER]: options.deploymentId } }
+                : undefined,
+            ),
+            "HIT",
+            cached.value,
+            options,
+          )
+        : buildPagesCacheResponse(
+            value.html,
+            "HIT",
+            options.fontLinkHeader,
+            undefined,
+            options.expireSeconds,
+            cached.value.cacheControl,
+            value.status,
+            value.headers,
+          );
+      return options.isDataReq
+        ? { kind: "response", response }
+        : (applyBotETagAndCheck(response, value.html, options) ?? { kind: "response", response });
+    }
+  }
 
   if (typeof options.pageModule.getStaticPaths === "function" && options.route.isDynamic) {
     const pathsResult = await options.pageModule.getStaticPaths({

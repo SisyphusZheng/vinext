@@ -37,6 +37,64 @@ const expiredPagesRepresentations: Array<[string, IncrementalCacheValue | null]>
   ["notFound", null],
 ];
 
+// Read-only prerender adapters also serve Pages without getStaticProps.
+// Next.js equivalent: test/e2e/prerender.test.ts
+describe("automatically static Pages prerender cache", () => {
+  it.each([false, true])(
+    "serves a packaged page without rendering (data: %s)",
+    async (isDataReq) => {
+      const options = createOptions({
+        isDataReq,
+        deploymentId: "deployment-a",
+        pageModule: { default: () => null },
+        nextData: { autoExport: true },
+        hasPrerenderedPages: true,
+        isrGet: vi.fn<ResolvePagesPageDataOptions["isrGet"]>(async () => ({
+          isStale: false,
+          value: {
+            lastModified: 0,
+            cacheControl: { revalidate: false },
+            value: {
+              kind: "PAGES",
+              html: "prebuilt",
+              pageData: { pageProps: { title: "prebuilt" } },
+              headers: undefined,
+              status: 200,
+            },
+          },
+        })),
+      });
+      const result = await resolvePagesPageData(options);
+      expect(result.kind).toBe("response");
+      if (result.kind !== "response") throw new Error("expected response");
+      expect(result.response.headers.get("x-vinext-cache")).toBe("HIT");
+      if (isDataReq) {
+        expect(await result.response.json()).toEqual({ pageProps: { title: "prebuilt" } });
+        expect(result.response.headers.get("x-nextjs-deployment-id")).toBe("deployment-a");
+      } else {
+        expect(await result.response.text()).toBe("prebuilt");
+      }
+    },
+  );
+
+  it.each([
+    { hasPrerenderedPages: false },
+    { scriptNonce: "request-nonce" },
+    { isOnDemandRevalidate: true },
+    { previewData: {} },
+    { nextData: { autoExport: false } },
+  ])("does not read a prerender for bypassed requests: %j", async (overrides) => {
+    const options = createOptions({
+      pageModule: { default: () => null },
+      nextData: { autoExport: true },
+      hasPrerenderedPages: true,
+      ...overrides,
+    });
+    expect((await resolvePagesPageData(options)).kind).toBe("render");
+    expect(options.isrGet).not.toHaveBeenCalled();
+  });
+});
+
 function createOptions(
   overrides: Partial<ResolvePagesPageDataOptions> = {},
 ): ResolvePagesPageDataOptions {

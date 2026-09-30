@@ -313,6 +313,18 @@ const projectServers = {
           timeout: 180_000,
         },
   },
+  "cloudflare-static-assets-pages": {
+    testDir: "./tests/e2e/cloudflare-static-assets-pages",
+    use: { baseURL: "http://localhost:4216" },
+    server: {
+      command:
+        "(test -e node_modules || test -L node_modules || ln -s ../../../fixtures/cf-app-basic/node_modules node_modules) && npx vp run vinext#build && npx vp run @vinext/cloudflare#build && node ../../../../packages/vinext/dist/cli.js build && npx wrangler dev --config dist/server/wrangler.json --port 4216",
+      cwd: "./tests/e2e/cloudflare-static-assets-pages/fixture",
+      port: 4216,
+      reuseExistingServer: !process.env.CI,
+      timeout: 180_000,
+    },
+  },
   "cloudflare-static-export": {
     testDir: "./tests/e2e/cloudflare-static-export",
     use: { baseURL: "http://localhost:4215" },

@@ -240,6 +240,22 @@ describe("createPagesPageHandler — pre-render response headers", () => {
 // ---------------------------------------------------------------------------
 
 describe("createPagesPageHandler — route miss", () => {
+  it("reads an automatically static custom 404 under its own prerender key", async () => {
+    const adapter = Object.assign(new DefaultCdnCacheAdapter(), { hasPrerenderedPages: true });
+    const get = vi.spyOn(adapter, "get").mockResolvedValue({
+      lastModified: 0,
+      cacheControl: { revalidate: false },
+      value: { kind: "PAGES", html: "prebuilt 404", pageData: {}, status: 404, headers: undefined },
+    });
+    setCdnCacheAdapter(adapter);
+    const handler = createPagesPageHandler(makeOpts({ pageRoutes: [makeRoute("/404")] }));
+    const response = await handler(makeRequest("/missing"), "/missing", null, null, null);
+    expect(get).toHaveBeenCalledExactlyOnceWith(isrCacheKey("pages", "/404", "test-build-id"));
+    expect(response.status).toBe(404);
+    expect(response.headers.get("x-vinext-cache")).toBe("HIT");
+    expect(await response.text()).toBe("prebuilt 404");
+  });
+
   it("returns default 404 when no custom 404 page and no _error page", async () => {
     const handler = createPagesPageHandler(makeOpts({ pageRoutes: [] }));
     const res = await handler(makeRequest("/missing"), "/missing", null, null, null);
