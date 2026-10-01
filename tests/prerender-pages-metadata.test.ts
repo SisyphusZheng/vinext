@@ -128,6 +128,20 @@ describe("Pages prerender response metadata", () => {
     expect(fs.existsSync(path.join(root, "out/billing.html"))).toBe(false);
   });
 
+  it("does not package a rewritten 404 response as the custom 404", async () => {
+    page("404.tsx");
+    const result = await render((req, res) => {
+      // e.g. a conditional rewrite of /404 to a public file returns early.
+      if (req.url === "/404") res.removeHeader("x-vinext-prerender-rewritten");
+      res.statusCode = 404;
+      res.setHeader("Content-Type", "text/html");
+      res.end("<html>Not the custom 404</html>");
+    });
+
+    expect(result.routes.find((route) => route.route === "/404")).toBeUndefined();
+    expect(fs.existsSync(path.join(root, "out/404.html"))).toBe(false);
+  });
+
   // Next.js: test/e2e/prerender.test.ts and test/e2e/i18n-data-fetching-redirect/redirect.test.ts
   // https://github.com/vercel/next.js/blob/canary/test/e2e/prerender.test.ts
   it.each([undefined, true, false])(

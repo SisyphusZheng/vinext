@@ -1290,6 +1290,15 @@ export async function prerenderPages({
         const notFoundRes = await renderPage(
           localizePagesPath(hasCustom404 ? "/404" : NOT_FOUND_SENTINEL_PATH, locale, config.i18n),
         );
+        // Same rule as the page loop: a conditional rewrite of the 404 path to
+        // another file, API, or page must not become the deployment-wide 404.
+        if (
+          mode === "default" &&
+          notFoundRes.headers.get(VINEXT_PRERENDER_REWRITTEN_HEADER) !== "0"
+        ) {
+          void notFoundRes.body?.cancel().catch(() => {});
+          continue;
+        }
         const contentType = notFoundRes.headers.get("content-type") ?? "";
         if (notFoundRes.status === 404 && contentType.includes("text/html")) {
           const html404 = await notFoundRes.text();

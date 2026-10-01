@@ -161,14 +161,34 @@ describe("dynamic Pages prerender cache", () => {
     },
   );
 
-  it.each(["adapter", "preview", "nonce", "on-demand", "missing", "stale", "expired"])(
+  it("admits a nonce request by its packaged entry but renders it fresh", async () => {
+    // The packaged HTML cannot carry this request's nonce, but its existence
+    // still proves the path was generated at build time.
+    const getStaticPaths = vi.fn(async () => ({ paths: [], fallback: false as const }));
+    const getStaticProps = vi.fn(async () => ({ props: { fresh: true } }));
+    const options = createOptions({
+      hasPrerenderedPages: true,
+      scriptNonce: "request-nonce",
+      route: { isDynamic: true },
+      pageModule: { getStaticPaths, getStaticProps },
+      isrGet: vi.fn<ResolvePagesPageDataOptions["isrGet"]>(async () => ({
+        isStale: false,
+        value: { lastModified: 0, cacheControl: { revalidate: false }, value: values[0][1] },
+      })),
+    });
+    const result = await resolvePagesPageData(options);
+    expect(getStaticPaths).not.toHaveBeenCalled();
+    expect(getStaticProps).toHaveBeenCalledOnce();
+    expect(result.kind).toBe("render");
+  });
+
+  it.each(["adapter", "preview", "on-demand", "missing", "stale", "expired"])(
     "still resolves runtime static paths for a %s bypass or unusable entry",
     async (reason) => {
       const getStaticPaths = vi.fn(async () => ({ paths: [], fallback: false }));
       const options = createOptions({
         hasPrerenderedPages: reason !== "adapter",
         previewData: reason === "preview" ? {} : false,
-        scriptNonce: reason === "nonce" ? "nonce" : undefined,
         isOnDemandRevalidate: reason === "on-demand",
         route: { isDynamic: true },
         pageModule: { getStaticPaths, getStaticProps: async () => ({ props: {} }) },
@@ -188,8 +208,7 @@ describe("dynamic Pages prerender cache", () => {
       });
       await resolvePagesPageData(options);
       expect(getStaticPaths).toHaveBeenCalledOnce();
-      if (["adapter", "nonce", "on-demand"].includes(reason))
-        expect(options.isrGet).not.toHaveBeenCalled();
+      if (["adapter", "on-demand"].includes(reason)) expect(options.isrGet).not.toHaveBeenCalled();
     },
   );
 });

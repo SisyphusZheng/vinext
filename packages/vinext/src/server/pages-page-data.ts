@@ -1278,13 +1278,14 @@ export async function resolvePagesPageData(
   // A packaged dynamic entry proves this path was generated at build time.
   // getStaticPaths may depend on build-only data; reuse the existing cache
   // response branches below before letting a runtime path list exclude it.
+  // Nonce requests still need this admission; the HTML replay branches below
+  // keep their own nonce guard and render fresh instead.
   let hasFreshPrerenderedEntry = false;
   if (
     options.hasPrerenderedPages &&
     options.route.isDynamic &&
     typeof options.pageModule.getStaticProps === "function" &&
     typeof options.pageModule.getServerSideProps !== "function" &&
-    !options.scriptNonce &&
     !options.isOnDemandRevalidate &&
     previewData === false
   ) {

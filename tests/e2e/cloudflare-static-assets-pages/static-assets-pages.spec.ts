@@ -291,6 +291,13 @@ test("locale-prefixed static pages and getStaticPaths variants use their build s
   const data = await request.get(`${i18nBaseURL}/_next/data/${buildId}/fr/posts/first.json`);
   expectHit(data);
   expect(await data.json()).toMatchObject({ pageProps: { locale: "fr", source: "build-time" } });
+  // The snapshot cannot carry a request nonce, but still admits the build-only path.
+  const nonced = await request.get(`${i18nBaseURL}/fr/posts/first`, {
+    headers: { "Content-Security-Policy": "script-src 'nonce-e2e-nonce'" },
+  });
+  expect(nonced.status()).toBe(200);
+  expect(nonced.headers()["x-vinext-cache"]).not.toBe("HIT");
+  expect(await nonced.text()).toContain('nonce="e2e-nonce"');
   const unlistedLocale = await request.get(`${i18nBaseURL}/posts/french-only`);
   expect(unlistedLocale.status()).toBe(404);
   const missing = await request.get(`${i18nBaseURL}/fr/missing`);
