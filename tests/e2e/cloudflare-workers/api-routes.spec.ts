@@ -3,8 +3,10 @@ import { test, expect } from "@playwright/test";
 
 const BASE = "http://localhost:4176";
 
-// Playwright's request context won't send a GET body, so use node:http. The body
-// is non-empty because wrangler dev's proxy drops an empty one before the Worker.
+// Playwright's request context won't frame a GET body, so use node:http. Send an
+// empty chunked body: wrangler dev's proxy drops `Content-Length: 0`, and body bytes
+// the Worker never reads can make the proxy's forwarding fetch fail, which takes
+// wrangler dev down.
 function sendFramed(
   method: "GET" | "HEAD",
   path: string,
@@ -15,7 +17,7 @@ function sendFramed(
 }> {
   return new Promise((resolve, reject) => {
     const req = httpRequest(
-      { host: "localhost", port: 4176, path, method, headers: { "content-length": "2" } },
+      { host: "localhost", port: 4176, path, method, headers: { "transfer-encoding": "chunked" } },
       (res) => {
         let body = "";
         res.setEncoding("utf8");
@@ -24,7 +26,7 @@ function sendFramed(
       },
     );
     req.on("error", reject);
-    req.end("hi");
+    req.end();
   });
 }
 
@@ -60,10 +62,10 @@ test.describe("Cloudflare Workers API Routes", () => {
     expect(await response.json()).toEqual({ result: 42 });
   });
 
-  // Workers gives a GET/HEAD sent with a body (or just Content-Length) a non-null body. Next.js nulls
-  // GET/HEAD bodies before user code runs (NextRequestAdapter), so middleware, route
-  // handlers and edge API routes must all see a null body, and rebuilding the route
-  // handler's request must not throw.
+  // Workers gives a GET/HEAD with body framing (Content-Length or Transfer-Encoding)
+  // a non-null body, even an empty one. Next.js nulls GET/HEAD bodies before user
+  // code runs (NextRequestAdapter), so middleware, route handlers and edge API routes
+  // must all see a null body, and rebuilding the route handler's request must not throw.
   test("a framed GET reaches user code with a null body", async () => {
     const response = await sendFramed("GET", "/api/framed-get");
 
