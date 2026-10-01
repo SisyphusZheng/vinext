@@ -1,6 +1,32 @@
+import { request as httpRequest } from "node:http";
 import { test, expect } from "@playwright/test";
 
 const BASE = "http://localhost:4176";
+
+// Playwright's request context won't send a GET body, so use node:http. The body
+// is non-empty because wrangler dev's proxy drops an empty one before the Worker.
+function sendFramed(
+  method: "GET" | "HEAD",
+  path: string,
+): Promise<{
+  body: string;
+  headers: Record<string, string | string[] | undefined>;
+  status: number;
+}> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(
+      { host: "localhost", port: 4176, path, method, headers: { "content-length": "2" } },
+      (res) => {
+        let body = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => (body += chunk));
+        res.on("end", () => resolve({ body, headers: res.headers, status: res.statusCode ?? 0 }));
+      },
+    );
+    req.on("error", reject);
+    req.end("hi");
+  });
+}
 
 test.describe("Cloudflare Workers API Routes", () => {
   test("GET /api/hello returns JSON", async ({ request }) => {
@@ -32,5 +58,36 @@ test.describe("Cloudflare Workers API Routes", () => {
 
     expect(response.status()).toBe(200);
     expect(await response.json()).toEqual({ result: 42 });
+  });
+
+  // Workers gives a GET/HEAD sent with a body (or just Content-Length) a non-null body. Next.js nulls
+  // GET/HEAD bodies before user code runs (NextRequestAdapter), so middleware, route
+  // handlers and edge API routes must all see a null body, and rebuilding the route
+  // handler's request must not throw.
+  test("a framed GET reaches user code with a null body", async () => {
+    const response = await sendFramed("GET", "/api/framed-get");
+
+    expect(response.status).toBe(200);
+    expect(response.headers["x-mw-body-null"]).toBe("true");
+    expect(JSON.parse(response.body)).toEqual({
+      bodyNull: true,
+      requestBodyNull: true,
+      nextRequestBodyNull: true,
+    });
+  });
+
+  test("a framed HEAD reaches the route handler", async () => {
+    const response = await sendFramed("HEAD", "/api/framed-get");
+
+    expect(response.status).toBe(200);
+    expect(response.headers["x-mw-body-null"]).toBe("true");
+  });
+
+  test("a framed GET reaches an edge API route with a null body", async () => {
+    const response = await sendFramed("GET", "/api/framed-get-edge");
+
+    expect(response.status).toBe(200);
+    expect(response.headers["x-mw-body-null"]).toBe("true");
+    expect(JSON.parse(response.body)).toEqual({ bodyNull: true });
   });
 });
