@@ -45,6 +45,7 @@ import {
   VINEXT_CACHE_HEADER,
   VINEXT_METADATA_ROUTE_CACHE_HEADER,
   VINEXT_PRERENDER_CACHE_LIFE_HEADER,
+  VINEXT_PRERENDER_REWRITTEN_HEADER,
   VINEXT_PRERENDER_METADATA_ROUTES_PATH,
   VINEXT_PRERENDER_RENDER_ERROR_HEADER,
   VINEXT_PRERENDER_ROUTE_PARAMS_HEADER,
@@ -1156,6 +1157,26 @@ export async function prerenderPages({
         let result: PrerenderRouteResult;
         try {
           const response = await renderPage(urlPath);
+          // A conditional rewrite can render another page for this headerless
+          // build request. Leave the path to runtime rather than freezing it.
+          if (
+            mode === "default" &&
+            response.headers.get(VINEXT_PRERENDER_REWRITTEN_HEADER) === "1"
+          ) {
+            void response.body?.cancel().catch(() => {});
+            const skipped: PrerenderRouteResult = {
+              route: route.pattern,
+              status: "skipped",
+              reason: "dynamic",
+            };
+            onProgress?.({
+              completed: ++completed,
+              total: pagesToRender.length,
+              route: urlPath,
+              status: skipped.status,
+            });
+            return skipped;
+          }
           const contentType = response.headers.get("content-type");
           // getStaticProps terminal responses carry the framework's MISS marker.
           // A middleware/config/_app early response must not become a snapshot.

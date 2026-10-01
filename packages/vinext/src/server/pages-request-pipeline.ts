@@ -51,6 +51,7 @@ import {
 import { markRouteCacheabilityDynamic } from "vinext/shims/cacheability-classification";
 import type { PagesRouteDataKind } from "./pages-route-data-kind.js";
 import { setFrameworkRequestRoute } from "./request-tracing.js";
+import { VINEXT_PRERENDER_REWRITTEN_HEADER } from "./headers.js";
 
 function ruleUsesUnkeyedRequestCondition(rule: NextRedirect | NextRewrite): boolean {
   return [...(rule.has ?? []), ...(rule.missing ?? [])].some(
@@ -983,6 +984,12 @@ export async function runPagesRequest(
       matchedPathHeaders["x-nextjs-matched-path"] = matchedPathnameForRoute(
         renderPageMatch?.route.pattern,
       );
+    }
+    if (typeof process !== "undefined" && process.env?.VINEXT_PRERENDER === "1") {
+      // A build request can satisfy a request-conditional rewrite that real
+      // visitors may not. Tell the prerenderer not to freeze another page here.
+      matchedPathHeaders[VINEXT_PRERENDER_REWRITTEN_HEADER] =
+        resolvedUrl === originalResolvedUrl ? "0" : "1";
     }
     const merged = mergeHeaders(response, matchedPathHeaders, middlewareStatus);
     // Preserve the streaming marker so the adapter can decide stream-vs-buffer.

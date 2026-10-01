@@ -4,7 +4,11 @@ export default {
   env: { VINEXT_E2E_CONTROLS: process.env.VINEXT_E2E_CONTROLS === "1" ? "1" : "" },
   async rewrites() {
     return {
-      beforeFiles: [{ source: "/before/:path*", destination: "/:path*" }],
+      beforeFiles: [
+        { source: "/before/:path*", destination: "/:path*" },
+        // The headerless build request takes this rewrite; signed-in visitors do not.
+        { source: "/account", missing: [{ type: "cookie", key: "session" }], destination: "/" },
+      ],
       afterFiles: [{ source: "/after/:path*", destination: "/:path*" }],
       fallback: [{ source: "/fallback/:path*", destination: "/:path*" }],
     };

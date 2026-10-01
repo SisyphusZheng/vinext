@@ -4,7 +4,7 @@ import path from "node:path";
 
 // Local runs build both examples; deployed runs target each PR's preview.
 const deployed = Boolean(process.env.VINEXT_E2E_BASE_URL);
-const i18nBaseURL = process.env.VINEXT_E2E_I18N_BASE_URL ?? "http://localhost:4217";
+const i18nBaseURL = process.env.VINEXT_E2E_I18N_BASE_URL ?? "http://localhost:4219";
 if (deployed && !process.env.VINEXT_E2E_I18N_BASE_URL) {
   throw new Error("VINEXT_E2E_I18N_BASE_URL is required with VINEXT_E2E_BASE_URL");
 }
@@ -106,6 +106,18 @@ test("finite ISR and on-demand revalidation leave the packaged snapshot unchange
   const buildOnly = await request.get(`${i18nBaseURL}/fr/posts/first/`);
   expectHit(buildOnly);
   expect(await buildOnly.text()).toContain('id="render-source">build-time</p>');
+});
+
+test("conditional rewrites taken at build time do not freeze another page", async ({ request }) => {
+  const anonymous = await request.get("/account");
+  expectHit(anonymous);
+  expect(await anonymous.text()).toContain("Static Assets Pages Router");
+  const signedIn = await request.get("/account", { headers: { Cookie: "session=1" } });
+  expect(signedIn.status()).toBe(200);
+  expect(signedIn.headers()["x-vinext-cache"]).not.toBe("HIT");
+  const html = await signedIn.text();
+  expect(html).toContain("<h1>Account</h1>");
+  expect(html).toContain('id="render-source">runtime</p>');
 });
 
 test("SSR and unlisted fallback paths render at runtime without being persisted", async ({

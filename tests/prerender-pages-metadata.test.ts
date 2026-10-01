@@ -76,6 +76,29 @@ describe("Pages prerender response metadata", () => {
     });
   });
 
+  it("leaves pages rendered through a rewrite to runtime", async () => {
+    // A conditional beforeFiles rewrite (for example `missing: cookie`) can fire
+    // for the headerless build request, but not for visitors carrying the cookie.
+    page("account.tsx", "export function getStaticProps() { return { props: {} }; }");
+    page("about.tsx", "export function getStaticProps() { return { props: {} }; }");
+    const result = await render((req, res) => {
+      const rewritten = req.url === "/account";
+      res.setHeader("Content-Type", "text/html");
+      res.setHeader("X-Vinext-Cache", "MISS");
+      res.setHeader("x-vinext-prerender-rewritten", rewritten ? "1" : "0");
+      res.end(rewritten ? "<html>Login</html>" : "<html>About</html>");
+    });
+
+    expect(result.routes).toEqual(
+      expect.arrayContaining([
+        { route: "/account", status: "skipped", reason: "dynamic" },
+        expect.objectContaining({ route: "/about", status: "rendered" }),
+      ]),
+    );
+    expect(fs.existsSync(path.join(root, "out/account.html"))).toBe(false);
+    expect(fs.existsSync(path.join(root, "out/about.html"))).toBe(true);
+  });
+
   // Next.js: test/e2e/prerender.test.ts and test/e2e/i18n-data-fetching-redirect/redirect.test.ts
   // https://github.com/vercel/next.js/blob/canary/test/e2e/prerender.test.ts
   it.each([undefined, true, false])(
