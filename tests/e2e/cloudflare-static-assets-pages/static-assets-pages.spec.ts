@@ -9,6 +9,9 @@ if (deployed && !process.env.VINEXT_E2E_I18N_BASE_URL) {
   throw new Error("VINEXT_E2E_I18N_BASE_URL is required with VINEXT_E2E_BASE_URL");
 }
 const cacheDir = path.resolve("examples/static-assets-pages/dist/client/_vinext/static-cache");
+const prerenderManifestPath = path.resolve(
+  "examples/static-assets-pages/dist/server/vinext-prerender.json",
+);
 
 /** index.json is always packaged; deployed runs cannot list the remaining ids. */
 function listArtifacts(): string[] {
@@ -117,6 +120,26 @@ test("conditional rewrites taken at build time do not freeze another page", asyn
   expect(signedIn.headers()["x-vinext-cache"]).not.toBe("HIT");
   const html = await signedIn.text();
   expect(html).toContain("<h1>Account</h1>");
+  expect(html).toContain('id="render-source">runtime</p>');
+});
+
+test("conditional rewrites to API routes at build time do not freeze the page", async ({
+  request,
+}) => {
+  if (!deployed) {
+    const manifest = JSON.parse(fs.readFileSync(prerenderManifestPath, "utf8")) as {
+      routes: Array<{ route: string; status: string }>;
+    };
+    expect(manifest.routes.find((route) => route.route === "/billing")?.status).toBe("skipped");
+  }
+  const anonymous = await request.get("/billing");
+  expect(anonymous.status()).toBe(200);
+  expect(await anonymous.json()).toEqual({ viewer: "anonymous" });
+  const signedIn = await request.get("/billing", { headers: { Cookie: "session=1" } });
+  expect(signedIn.status()).toBe(200);
+  expect(signedIn.headers()["x-vinext-cache"]).not.toBe("HIT");
+  const html = await signedIn.text();
+  expect(html).toContain("<h1>Billing</h1>");
   expect(html).toContain('id="render-source">runtime</p>');
 });
 

@@ -105,7 +105,7 @@ export const VINEXT_RENDERED_PATH_AND_SEARCH_HEADER = "X-Vinext-Rendered-Path-An
 /** Prerender-only JSON side channel carrying request cacheLife metadata. */
 export const VINEXT_PRERENDER_CACHE_LIFE_HEADER = "x-vinext-prerender-cache-life";
 
-/** Prerender-only marker: "1" when middleware or config rewrites changed a Pages render URL. */
+/** Prerender-only Pages marker: "0" confirms the page render used the requested URL. */
 export const VINEXT_PRERENDER_REWRITTEN_HEADER = "x-vinext-prerender-rewritten";
 
 /** Marks a local prerender-server 500 that originated from a thrown render error. */

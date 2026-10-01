@@ -987,7 +987,8 @@ export async function runPagesRequest(
     }
     if (typeof process !== "undefined" && process.env?.VINEXT_PRERENDER === "1") {
       // A build request can satisfy a request-conditional rewrite that real
-      // visitors may not. Tell the prerenderer not to freeze another page here.
+      // visitors may not. Only an unrewritten page render may become a snapshot;
+      // earlier filesystem, API, and proxy returns never carry this confirmation.
       matchedPathHeaders[VINEXT_PRERENDER_REWRITTEN_HEADER] =
         resolvedUrl === originalResolvedUrl ? "0" : "1";
     }

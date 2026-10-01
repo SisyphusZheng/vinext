@@ -1157,11 +1157,12 @@ export async function prerenderPages({
         let result: PrerenderRouteResult;
         try {
           const response = await renderPage(urlPath);
-          // A conditional rewrite can render another page for this headerless
-          // build request. Leave the path to runtime rather than freezing it.
+          // Only the page render for this exact URL confirms "0". Rewrites to other
+          // pages, files, API routes, or proxies may be request-conditional, so
+          // leave those paths to runtime rather than freezing the build result.
           if (
             mode === "default" &&
-            response.headers.get(VINEXT_PRERENDER_REWRITTEN_HEADER) === "1"
+            response.headers.get(VINEXT_PRERENDER_REWRITTEN_HEADER) !== "0"
           ) {
             void response.body?.cancel().catch(() => {});
             const skipped: PrerenderRouteResult = {

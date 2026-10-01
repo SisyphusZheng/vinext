@@ -31,7 +31,11 @@ async function render(
   nextConfig: NextConfig = {},
   mode: "default" | "export" = "default",
 ) {
-  server = createServer(handler);
+  server = createServer((req, res) => {
+    // Real page renders confirm they used the requested URL; handlers can override.
+    res.setHeader("x-vinext-prerender-rewritten", "0");
+    return handler(req, res);
+  });
   const port = await new Promise<number>((resolve, reject) => {
     server!.once("error", reject);
     server!.listen(0, "127.0.0.1", () => {
@@ -97,6 +101,31 @@ describe("Pages prerender response metadata", () => {
     );
     expect(fs.existsSync(path.join(root, "out/account.html"))).toBe(false);
     expect(fs.existsSync(path.join(root, "out/about.html"))).toBe(true);
+  });
+
+  it("leaves pages rewritten to a public file or API route to runtime", async () => {
+    // Filesystem, API, and proxy rewrites return before the page renderer, so
+    // their responses never carry the unrewritten-page confirmation.
+    page("account.tsx", "export function getStaticProps() { return { props: {} }; }");
+    page("billing.tsx", "export function getStaticProps() { return { props: {} }; }");
+    page("about.tsx", "export function getStaticProps() { return { props: {} }; }");
+    const result = await render((req, res) => {
+      if (req.url === "/account" || req.url === "/billing") {
+        res.removeHeader("x-vinext-prerender-rewritten");
+      }
+      res.setHeader("Content-Type", req.url === "/billing" ? "application/json" : "text/html");
+      res.end(req.url === "/billing" ? '{"api":true}' : "<html>Public file</html>");
+    });
+
+    expect(result.routes).toEqual(
+      expect.arrayContaining([
+        { route: "/account", status: "skipped", reason: "dynamic" },
+        { route: "/billing", status: "skipped", reason: "dynamic" },
+        expect.objectContaining({ route: "/about", status: "rendered" }),
+      ]),
+    );
+    expect(fs.existsSync(path.join(root, "out/account.html"))).toBe(false);
+    expect(fs.existsSync(path.join(root, "out/billing.html"))).toBe(false);
   });
 
   // Next.js: test/e2e/prerender.test.ts and test/e2e/i18n-data-fetching-redirect/redirect.test.ts
