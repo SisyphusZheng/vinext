@@ -35,6 +35,11 @@ import { isPromiseLike } from "../packages/vinext/src/utils/promise.js";
 import { ClientPageRoot } from "../packages/vinext/src/shims/client-page-root.js";
 import { SIBLING_PAGE_INTERCEPT_SLOT_KEY } from "../packages/vinext/src/server/app-rsc-route-matching.js";
 import { APP_RSC_RENDER_MODE_PREFETCH_LOADING_SHELL } from "../packages/vinext/src/server/app-rsc-render-mode.js";
+import {
+  createRequestContext,
+  getRequestContext,
+  runWithRequestContext,
+} from "../packages/vinext/src/shims/unified-request-context.js";
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -2347,6 +2352,26 @@ describe("buildPageElements", () => {
       expect(props).not.toHaveProperty("searchParams");
       await expect(props.params).resolves.toEqual({ locale: "en" });
     }
+  });
+
+  it("opens the request's React.cache() scope before generateMetadata runs", async () => {
+    let scopeOpenInMetadata: boolean | null = null;
+    const route = createSyntheticRoute({
+      page: {
+        default: () => null,
+        generateMetadata() {
+          scopeOpenInMetadata = getRequestContext().reactRequestCacheScope.cache !== null;
+          return {};
+        },
+      } as AppPageModule,
+      pattern: "/metadata-scope",
+    });
+
+    await runWithRequestContext(createRequestContext(), () =>
+      buildPageElements(createBaseOptions({ route, routePath: "/metadata-scope" })),
+    );
+
+    expect(scopeOpenInMetadata).toBe(true);
   });
 
   it("routes html-limited bot metadata errors through an unsuspended outlet", async () => {

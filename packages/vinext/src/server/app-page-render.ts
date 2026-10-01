@@ -25,6 +25,7 @@ import {
   type LayoutClassificationOptions,
 } from "./app-page-execution.js";
 import { probeAppPageBeforeRender } from "./app-page-probe.js";
+import { enableReactRequestCache } from "./react-request-cache.js";
 import {
   applyEdgeRuntimeHeader,
   buildAppPageHtmlResponse,
@@ -869,6 +870,9 @@ async function renderAppPageLifecycleImpl(
   const probePageBeforeRender =
     options.isRscRequest ||
     (configuredProbePageBeforeRender && !(options.peekDynamicUsage?.() ?? false));
+  // The probes call layouts and pages outside the Flight render; share their
+  // cache() calls with the render.
+  enableReactRequestCache();
   const preRenderResult = await probeAppPageBeforeRender({
     hasLoadingBoundary: options.hasLoadingBoundary,
     probePageBeforeRender,

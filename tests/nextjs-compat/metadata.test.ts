@@ -392,6 +392,31 @@ describe("Next.js compat: metadata", () => {
     );
   });
 
+  // ── React cache() deduping ───────────────────────────────────
+  // Next.js: 'should have same title and page value on initial load' and
+  // 'should have same title and page value when navigating'
+  // Source: https://github.com/vercel/next.js/blob/canary/test/e2e/app-dir/metadata/metadata.test.ts#L815-L855
+
+  it("should share cache() values between generateMetadata and the page on initial load", async () => {
+    const { html } = await fetchHtml(baseUrl, "/nextjs-compat/metadata-cache-deduping");
+    const title = html.match(/<title>cache-deduping ([^<]+)<\/title>/)?.[1];
+    const value = html.match(/<p id="value">([^<]+)<\/p>/)?.[1];
+    expect(title).toBeDefined();
+    expect(title).toBe(value);
+  });
+
+  it("should share cache() values between generateMetadata and the page when navigating", async () => {
+    // RSC navigations also probe the page before rendering it.
+    const res = await fetch(`${baseUrl}/nextjs-compat/metadata-cache-deduping.rsc`, {
+      headers: { Accept: "text/x-component" },
+    });
+    const body = await res.text();
+    const title = body.match(/cache-deduping (0\.\d+)/)?.[1];
+    const value = body.match(/"id":"value","children":"([^"]+)"/)?.[1];
+    expect(title).toBeDefined();
+    expect(title).toBe(value);
+  });
+
   // ── Browser-only tests (documented, not ported) ──────────────
   //
   // N/A: 'should apply metadata when navigating client-side'

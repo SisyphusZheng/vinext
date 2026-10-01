@@ -54,6 +54,10 @@ export type UnifiedRequestContext = {
   // oxlint-disable-next-line @typescript-eslint/no-explicit-any
   requestCache: WeakMap<(...args: any[]) => any, unknown>;
 
+  // ── server/react-request-cache.ts ─────────────────────────────────
+  /** Shared React.cache() scope for a page render. `cache` is null until enabled. */
+  reactRequestCacheScope: { cache: Map<() => unknown, unknown> | null };
+
   // ── next/server after() ───────────────────────────────────────────
   /** Shared lifecycle state for work deferred until the response closes. */
   afterContext: AfterRequestContext;
@@ -139,6 +143,7 @@ export function createRequestContext(opts?: Partial<UnifiedRequestContext>): Uni
     nextFetchId: 1,
     executionContext: _getInheritedExecutionContext(), // inherits from standalone ALS if present
     requestCache: new WeakMap(),
+    reactRequestCacheScope: { cache: null },
     afterContext: {
       callbacks: [],
       responseClosed: false,
@@ -387,9 +392,10 @@ export function runWithUnifiedStateMutation<T>(
   // Map fields (unstableCacheObservations, _privateCache),
   // requestCache WeakMap, and object fields (headersContext,
   // i18nContext, serverContext, ssrContext, executionContext,
-  // requestScopedCacheLife, renderDynamicLatch) still share references with
-  // the parent until replaced. requestCache is intentionally shared — nested
-  // scopes within the same request should see the same cached values.
+  // requestScopedCacheLife, renderDynamicLatch, reactRequestCacheScope) still
+  // share references with the parent until replaced. requestCache and
+  // reactRequestCacheScope are intentionally shared — nested scopes within the
+  // same request should see the same cached values.
   // renderDynamicLatch must stay shared: dynamic usage in an isolated child
   // scope has to reach gates issued later in the same render. The mutate
   // callback must replace those reference-typed slices (for example

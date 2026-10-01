@@ -49,6 +49,7 @@ import {
   makeObservedAppPageSearchParamsThenable,
 } from "./app-page-search-params-observation.js";
 import { shouldServeStreamingMetadata } from "./streaming-metadata.js";
+import { enableReactRequestCache } from "./react-request-cache.js";
 import { resolveAppPageBranchParams, resolveAppPageSegmentParams } from "./app-page-params.js";
 import {
   createAppPageRenderDependency,
@@ -426,6 +427,9 @@ export async function buildPageElements<
   const metadataSearchParamsObserver = observeMetadataSearchParamsAccess
     ? createAppPageSearchParamsObserver()
     : undefined;
+  // generateMetadata() runs outside the Flight render; share its cache() calls
+  // with the probes and the render.
+  enableReactRequestCache();
   const preparedHead = prepareAppPageHead({
     applyFileBasedMetadata: options.applyFileBasedMetadata,
     basePath: options.basePath ?? "",

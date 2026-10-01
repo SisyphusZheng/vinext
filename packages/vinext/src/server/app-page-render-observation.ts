@@ -9,6 +9,7 @@ import {
 } from "vinext/shims/headers";
 import { AppElementsWire, isAppElementsRecord } from "./app-elements.js";
 import { normalizeMountedSlotsHeader } from "./app-mounted-slots-header.js";
+import { resetReactRequestCache } from "./react-request-cache.js";
 import {
   buildRenderObservation,
   buildRenderRequestApiObservations,
@@ -84,6 +85,7 @@ export function discardAppPageRenderState(): void {
   consumeRenderRequestApiUsage();
   consumeInvalidDynamicUsageError();
   consumeDynamicUsage();
+  resetReactRequestCache();
 }
 
 export function createAppPageRenderObservation(options: {
