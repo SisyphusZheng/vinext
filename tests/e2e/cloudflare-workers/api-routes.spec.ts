@@ -76,11 +76,12 @@ test.describe("Cloudflare Workers API Routes", () => {
     });
   });
 
-  test("a framed HEAD reaches the route handler", async () => {
+  test("a framed HEAD reaches the route handler with a null body", async () => {
     const response = await sendFramed("HEAD", "/api/framed-get");
 
     expect(response.status).toBe(200);
     expect(response.headers["x-mw-body-null"]).toBe("true");
+    expect(response.headers["x-route-body-null"]).toBe("true");
   });
 
   test("a framed GET reaches an edge API route with a null body", async () => {

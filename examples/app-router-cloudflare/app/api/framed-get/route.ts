@@ -4,9 +4,14 @@ import { NextRequest } from "next/server";
 // lets user code see one, so rebuilding the request must not throw either.
 export async function GET(request: NextRequest) {
   const url = new URL("/api/framed-get", request.url);
-  return Response.json({
-    bodyNull: request.body === null,
-    requestBodyNull: new Request(url, request).body === null,
-    nextRequestBodyNull: new NextRequest(url, request).body === null,
-  });
+  const bodyNull = request.body === null;
+  return Response.json(
+    {
+      bodyNull,
+      requestBodyNull: new Request(url, request).body === null,
+      nextRequestBodyNull: new NextRequest(url, request).body === null,
+    },
+    // A HEAD response drops the JSON, so report the handler's view in a header too.
+    { headers: { "x-route-body-null": String(bodyNull) } },
+  );
 }
