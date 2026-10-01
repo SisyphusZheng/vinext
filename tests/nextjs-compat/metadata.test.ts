@@ -406,7 +406,6 @@ describe("Next.js compat: metadata", () => {
   });
 
   it("should share cache() values between generateMetadata and the page when navigating", async () => {
-    // RSC navigations also probe the page before rendering it.
     const res = await fetch(`${baseUrl}/nextjs-compat/metadata-cache-deduping.rsc`, {
       headers: { Accept: "text/x-component" },
     });

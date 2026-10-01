@@ -8,6 +8,9 @@ const execFileAsync = promisify(execFile);
 type ScenarioResults = {
   beforeFirstFlightRequest: string[];
   sharedScope: { calls: string[]; sameValue: boolean };
+  probes: { calls: string[]; probeSawMetadata: boolean; renderSawProbe: boolean };
+  connectionProbe: { probeCompleted: boolean; rendered: string | null };
+  isolatedProbe: { calls: string[]; requestDynamic: boolean };
   concurrentRequests: { calls: string[]; isolated: boolean };
   notEnabled: string[];
   cacheScopes: string[];
@@ -48,6 +51,12 @@ async function runScenarios(): Promise<ScenarioResults> {
         runWithRequestContext,
         runWithUnifiedStateMutation,
       } = await vite.ssrLoadModule("/packages/vinext/src/shims/unified-request-context.ts");
+      const { consumeDynamicUsage, runWithConnectionProbe, runWithIsolatedDynamicUsage } =
+        await vite.ssrLoadModule("/packages/vinext/src/shims/headers.ts");
+      const { markDynamicUsage } = await vite.ssrLoadModule(
+        "/packages/vinext/src/shims/internal/headers-state.ts",
+      );
+      const { connection } = await vite.ssrLoadModule("/packages/vinext/src/shims/server.ts");
       const { getOrCreateAls } = await vite.ssrLoadModule(
         "/packages/vinext/src/shims/internal/als-registry.ts",
       );
@@ -67,8 +76,13 @@ async function runScenarios(): Promise<ScenarioResults> {
         });
       }
 
-      // Probe a layout, resolve its generateMetadata(), then render it in
-      // Flight, the order an App Router page request runs them in.
+      async function probe(fn) {
+        const outcome = await runWithConnectionProbe(fn);
+        return outcome.completed ? outcome.result : null;
+      }
+
+      // Resolve a layout's generateMetadata(), probe the layout, then render it
+      // in Flight, the order an App Router page request runs them in.
       async function runPageRequest(load, id, options = {}) {
         return runWithRequestContext(createRequestContext(), async () => {
           if (options.enable !== false) enableReactRequestCache();
@@ -80,8 +94,8 @@ async function runScenarios(): Promise<ScenarioResults> {
             const release = await load(id);
             return { title: release.id };
           }
-          await Layout();
           await generateMetadata();
+          await probe(Layout);
           let rendered;
           await renderFlight(
             React.createElement(async function Page() {
@@ -104,10 +118,10 @@ async function runScenarios(): Promise<ScenarioResults> {
       {
         const calls = [];
         const load = createLoader(calls);
-        let probed;
+        let metadata;
         const rendered = await runWithRequestContext(createRequestContext(), async () => {
           enableReactRequestCache();
-          probed = await load("v22");
+          metadata = await load("v22");
           await load("v22");
           let value;
           await renderFlight(
@@ -118,7 +132,73 @@ async function runScenarios(): Promise<ScenarioResults> {
           );
           return value;
         });
-        results.sharedScope = { calls, sameValue: probed === rendered };
+        results.sharedScope = { calls, sameValue: metadata === rendered };
+      }
+
+      {
+        const calls = [];
+        const load = createLoader(calls);
+        results.probes = await runWithRequestContext(createRequestContext(), async () => {
+          enableReactRequestCache();
+          const metadata = await load("probe");
+          const probed = await probe(() => load("probe"));
+          let rendered;
+          await renderFlight(
+            React.createElement(async function Page() {
+              rendered = await load("probe");
+              return null;
+            }),
+          );
+          return { calls, probeSawMetadata: probed === metadata, renderSawProbe: rendered === probed };
+        });
+      }
+
+      {
+        // connection() never settles inside a probe; the render must not
+        // inherit that promise.
+        const load = React.cache(async (id) => {
+          await connection();
+          return "live-" + id;
+        });
+        results.connectionProbe = await runWithRequestContext(createRequestContext(), async () => {
+          enableReactRequestCache();
+          const outcome = await runWithConnectionProbe(() => load("layout"));
+          let rendered = null;
+          await Promise.race([
+            renderFlight(
+              React.createElement(async function Page() {
+                rendered = await load("layout");
+                return null;
+              }),
+            ),
+            new Promise((resolve) => setTimeout(resolve, 2_000)),
+          ]);
+          return { probeCompleted: outcome.completed, rendered };
+        });
+      }
+
+      {
+        // A layout probed in an isolated dynamic scope: its dynamic usage stays
+        // in that scope, so the render has to call the loader again and mark
+        // the request itself.
+        const calls = [];
+        const load = React.cache(async (id) => {
+          calls.push(id);
+          markDynamicUsage();
+          return { id };
+        });
+        results.isolatedProbe = await runWithRequestContext(createRequestContext(), async () => {
+          enableReactRequestCache();
+          await runWithIsolatedDynamicUsage(() => probe(() => load("user")));
+          const dynamicAfterProbe = consumeDynamicUsage();
+          await renderFlight(
+            React.createElement(async function Page() {
+              await load("user");
+              return null;
+            }),
+          );
+          return { calls, requestDynamic: !dynamicAfterProbe && consumeDynamicUsage() };
+        });
       }
 
       {
@@ -172,14 +252,14 @@ async function runScenarios(): Promise<ScenarioResults> {
           calls.push(id);
           throw new Error("not found");
         });
-        let probeError;
+        let metadataError;
         let renderError;
         await runWithRequestContext(createRequestContext(), async () => {
           enableReactRequestCache();
           try {
             load("missing");
           } catch (error) {
-            probeError = error;
+            metadataError = error;
           }
           await renderFlight(
             React.createElement(function Page() {
@@ -192,7 +272,7 @@ async function runScenarios(): Promise<ScenarioResults> {
             }),
           );
         });
-        results.thrownError = { calls, sameError: probeError === renderError };
+        results.thrownError = { calls, sameError: metadataError === renderError };
       }
 
       {
@@ -253,16 +333,37 @@ describe("React.cache() request scope", () => {
     expect(results.beforeFirstFlightRequest).toEqual(["first", "first", "first"]);
   });
 
-  it("runs a cache() loader once across the probe, generateMetadata and the Flight render", () => {
+  it("runs a cache() loader once across generateMetadata and the Flight render", () => {
     expect(results.sharedScope).toEqual({ calls: ["v22"], sameValue: true });
   });
 
+  it("keeps probes out of the shared scope", () => {
+    // The probe neither reads what metadata cached nor seeds the render.
+    expect(results.probes).toEqual({
+      calls: ["probe", "probe"],
+      probeSawMetadata: false,
+      renderSawProbe: false,
+    });
+  });
+
+  it("doesn't hand the render a connection() promise suspended by a probe", () => {
+    expect(results.connectionProbe).toEqual({ probeCompleted: false, rendered: "live-layout" });
+  });
+
+  it("lets the render record dynamic usage a probe kept in its isolated scope", () => {
+    expect(results.isolatedProbe).toEqual({ calls: ["user", "user"], requestDynamic: true });
+  });
+
   it("gives each concurrent request its own scope", () => {
-    expect(results.concurrentRequests).toEqual({ calls: ["v22", "v22"], isolated: true });
+    // Each request's probe runs the loader; its metadata and render share one call.
+    expect(results.concurrentRequests).toEqual({
+      calls: ["v22", "v22", "v22", "v22"],
+      isolated: true,
+    });
   });
 
   it("keeps React's behaviour outside an enabled page render", () => {
-    // The probe and generateMetadata each get a fresh cache; the render
+    // generateMetadata and the probe each get a fresh cache; the render
     // memoizes within itself.
     expect(results.notEnabled).toEqual(["v22", "v22", "v22"]);
   });
@@ -275,7 +376,7 @@ describe("React.cache() request scope", () => {
     expect(results.nestedScope).toEqual(["nested"]);
   });
 
-  it("rethrows an error cached during the probe in the render, as one render would", () => {
+  it("rethrows an error cached by generateMetadata in the render, as one render would", () => {
     expect(results.thrownError).toEqual({ calls: ["missing"], sameError: true });
   });
 

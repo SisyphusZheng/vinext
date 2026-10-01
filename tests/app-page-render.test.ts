@@ -75,7 +75,6 @@ import {
 } from "../packages/vinext/src/server/app-response-header-provenance.js";
 import {
   createRequestContext,
-  getRequestContext,
   runWithRequestContext,
 } from "../packages/vinext/src/shims/unified-request-context.js";
 import {
@@ -480,28 +479,6 @@ describe("app page render lifecycle", () => {
     await expect(response.text()).resolves.toBe("page:404");
     expect(common.renderToReadableStream).not.toHaveBeenCalled();
     expect(common.renderPageSpecialError).toHaveBeenCalledTimes(1);
-  });
-
-  it("opens the request's React.cache() scope before probing layouts and the page", async () => {
-    const common = createCommonOptions();
-    const scopeOpenWhenProbed: boolean[] = [];
-    const recordScope = () => {
-      scopeOpenWhenProbed.push(getRequestContext().reactRequestCacheScope.cache !== null);
-      return null;
-    };
-
-    const response = await runWithRequestContext(createRequestContext(), () =>
-      renderAppPageLifecycle({
-        ...common.options,
-        isRscRequest: true,
-        layoutCount: 1,
-        probeLayoutAt: recordScope,
-        probePage: recordScope,
-      }),
-    );
-    await response.arrayBuffer();
-
-    expect(scopeOpenWhenProbed).toEqual([true, true]);
   });
 
   it("does not run the page probe before normal HTML rendering", async () => {

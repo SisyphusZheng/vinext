@@ -428,7 +428,7 @@ export async function buildPageElements<
     ? createAppPageSearchParamsObserver()
     : undefined;
   // generateMetadata() runs outside the Flight render; share its cache() calls
-  // with the probes and the render.
+  // with the render.
   enableReactRequestCache();
   const preparedHead = prepareAppPageHead({
     applyFileBasedMetadata: options.applyFileBasedMetadata,

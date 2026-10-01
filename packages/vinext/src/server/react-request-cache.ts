@@ -1,23 +1,26 @@
 /**
- * One `React.cache()` scope per App Router page request.
+ * One `React.cache()` scope shared by an App Router page's metadata and its
+ * Flight render.
  *
  * React's server dispatcher only memoizes `cache()` while a Flight request is
  * active; outside of one, `getCacheForType()` hands back a fresh Map on every
- * call. vinext runs user code before `renderToReadableStream()` starts: the
- * layout/page probes that surface redirect()/notFound() early, and
- * generateMetadata()/generateViewport(). Without a shared scope, every
- * `cache()`-wrapped loader runs once there and again in the Flight render.
- * Next.js has no probes and resolves metadata inside its Flight render, so
- * each loader runs once per request.
+ * call. vinext resolves generateMetadata()/generateViewport() before
+ * `renderToReadableStream()` starts, so without a shared scope every
+ * `cache()`-wrapped loader they call runs again in the Flight render, and
+ * metadata can see different values from the page. Next.js resolves metadata
+ * inside its Flight render, so both see one value.
  *
- * `enableReactRequestCache()` opens a request-owned cache that the probes,
- * metadata and the request's Flight renders share, as if they were one render.
- * React has no option to seed a Flight request's cache, so this wraps the
- * dispatcher's `getCacheForType()` once per isolate. The wrapper defers to
- * React when:
+ * `enableReactRequestCache()` opens a request-owned cache that metadata and
+ * the request's Flight renders share. React has no option to seed a Flight
+ * request's cache, so this wraps the dispatcher's `getCacheForType()` once per
+ * isolate. The wrapper defers to React when:
  *
  * - no page render has enabled the scope (route handlers, server action
  *   bodies, middleware, the Pages Router),
+ * - the call runs inside a layout/page probe. Probes run components in an
+ *   order a render never would (a layout before its page), in scopes where
+ *   connection() never settles and dynamic usage stays local, so their values
+ *   must not reach the render,
  * - the call runs inside `"use cache"` or `unstable_cache()`, which own the
  *   reuse of their results,
  * - the response has closed, so `after()` callbacks see React's behaviour
@@ -47,7 +50,14 @@ function readActiveRequestCache(): Map<() => unknown, unknown> | null {
   if (!isInsideUnifiedScope()) return null;
   const ctx = getRequestContext();
   const cache = ctx.reactRequestCacheScope?.cache ?? null;
-  if (cache === null || ctx.afterContext.responseClosed || isInsideAnyCacheScope()) {
+  // A probe's scope keeps its (possibly inactive) connectionProbe after the
+  // probe returns, so its late continuations stay excluded too.
+  if (
+    cache === null ||
+    ctx.connectionProbe !== null ||
+    ctx.afterContext.responseClosed ||
+    isInsideAnyCacheScope()
+  ) {
     return null;
   }
   return cache;
