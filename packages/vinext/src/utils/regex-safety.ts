@@ -495,11 +495,15 @@ function fixedWords(node: RegexNode, budget: WordBudget): RegexSymbol[][] | null
       return words;
     }
     case "repeat": {
-      if (node.min !== node.max || !Number.isFinite(node.max)) return null;
+      // A bounded repeat such as `woff2?` or `x{1,3}` still has a finite
+      // language: the child's words repeated min..max times. Every word is a
+      // separate match path, so `(?:a|aa?)` counts as three ambiguous paths.
+      if (!Number.isFinite(node.max)) return null;
       let words: RegexSymbol[][] = [[]];
       const childWords = fixedWords(node.child, budget);
       if (!childWords) return null;
-      for (let count = 0; count < node.min; count++) {
+      const repeated: RegexSymbol[][] = node.min === 0 ? [[]] : [];
+      for (let count = 1; count <= node.max; count++) {
         const next: RegexSymbol[][] = [];
         for (const prefix of words) {
           for (const suffix of childWords) {
@@ -517,8 +521,9 @@ function fixedWords(node: RegexNode, budget: WordBudget): RegexSymbol[][] | null
           }
         }
         words = next;
+        if (count >= node.min) repeated.push(...words);
       }
-      return words;
+      return repeated;
     }
   }
 }
@@ -638,13 +643,7 @@ function ambiguousExpansionFactor(node: RegexNode): number {
     case "alternation": {
       const result = hasPrefixFreeFiniteLanguage(node);
       if (result.safe) return 1;
-      if (result.budgetExceeded) return MAX_SEQUENCE_EXPANSIONS + 1;
-      // Non-finite language (a branch carries a variable-length quantifier, e.g.
-      // `woff2?` in `.*\.(?:svg|png|woff2?)$`): the bounded-expansion metric does
-      // not apply here, so treat it like the variable `repeat` case below
-      // (factor 1). Ambiguity under repetition is still caught by the dedicated
-      // nested/overlapping/ambiguous-alternative checks.
-      if (result.wordCount === 0) return 1;
+      if (result.budgetExceeded || result.wordCount === 0) return MAX_SEQUENCE_EXPANSIONS + 1;
       return result.wordCount;
     }
     case "sequence": {

@@ -39,6 +39,10 @@ for (const matcher of [
   `/:path(${"(?:a+){1}?".repeat(6)})`,
   ...[6, 8].map((count) => `/:path(${"(?:(?:a+){1}){1,1}".repeat(count)})`),
   `/:path(${"(?:a|aa)".repeat(26)})`,
+  // Optional branches still count every match path; unbounded ones fail closed.
+  `/:path(${"(?:a|aa?)".repeat(26)})`,
+  `/:path(${"(?:a?|b)".repeat(26)}c)`,
+  `/:path(${"(?:a*|b)".repeat(8)}c)`,
 ]) {
   if (!matchPattern(`/${"a".repeat(3_000)}b`, matcher)) {
     throw new Error(`Unsafe bounded sequence did not fail closed: ${matcher}`);
@@ -56,6 +60,7 @@ for (const pattern of [
   "(?:a+(?:))(?:b+(?:))(?:a+(?:))",
   "(?:(?:a+){1}){1,1}(?:b+){1}(?:(?:a+){1,1}){1}",
   "[^/]+.*",
+  "[^?]*\\.(?:html?|jpe?g|woff2?)",
 ]) {
   const issue = analyzeRegexSafety(pattern, { ignoreCase: true });
   if (issue) throw new Error(`Safe sequence was rejected: ${pattern} (${issue})`);
