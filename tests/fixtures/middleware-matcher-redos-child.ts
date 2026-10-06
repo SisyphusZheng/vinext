@@ -85,6 +85,21 @@ if (malformedRangeDuration > 1_000) {
   throw new Error(`Malformed bounded range analysis took ${malformedRangeDuration.toFixed(1)}ms`);
 }
 
+// Huge exact counts over unambiguous children must not iterate to the count.
+const exactCountStart = performance.now();
+analyzeRegexSafety("(?:(?:a?b|c)){4000000000}d");
+const exactCountDuration = performance.now() - exactCountStart;
+if (exactCountDuration > 1_000) {
+  throw new Error(`Exact repeat analysis took ${exactCountDuration.toFixed(1)}ms`);
+}
+
+// Named backreferences match their capture, not the literal `\k<name>` text.
+for (const pattern of ["^(?<z>a)(?:\\k<z>x|ax)+c$", `^(?<z>a)${"(?:\\k<z>x|ab?x)".repeat(26)}c$`]) {
+  if (!analyzeRegexSafety(pattern, { ignoreCase: true })) {
+    throw new Error(`Unsafe backreference pattern was accepted: ${pattern}`);
+  }
+}
+
 // Keep the analysis itself linear for large, disjoint literal alternations.
 // CJK literals have stable, distinct non-Unicode ignore-case canonical forms.
 const alternatives = Array.from({ length: 2_000 }, (_, index) =>

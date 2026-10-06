@@ -314,6 +314,13 @@ class RegexParser {
     if (shorthand) {
       return this.node({ kind: "atom", symbol: shorthand, fixedWidth: true });
     }
+    // Numeric and named backreferences match whatever their group captured, so
+    // their language cannot be modelled from the pattern text.
+    if (escaped === "k" && this.pattern[this.index] === "<") {
+      const nameEnd = this.pattern.indexOf(">", this.index);
+      this.index = nameEnd === -1 ? this.pattern.length : nameEnd + 1;
+      return this.node({ kind: "atom", symbol: null, fixedWidth: false });
+    }
     if (/\d/.test(escaped)) {
       return this.node({ kind: "atom", symbol: null, fixedWidth: false });
     }
@@ -665,6 +672,7 @@ function ambiguousExpansionFactor(node: RegexNode): number {
     case "repeat": {
       if (node.min !== node.max || !Number.isFinite(node.max)) return 1;
       const childFactor = ambiguousExpansionFactor(node.child);
+      if (childFactor === 1) return 1;
       let factor = 1;
       for (let count = 0; count < node.max; count++) {
         factor *= childFactor;
