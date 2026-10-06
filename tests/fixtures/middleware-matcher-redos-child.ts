@@ -46,6 +46,9 @@ for (const matcher of [
   // A literal `\.` must not share a trie edge with the wildcard `.`.
   "/:path((?:\\.x|.y|ay)+)",
   `/:path(${"(?:\\.x|.y|ay|b?z)".repeat(26)}c)`,
+  // `\cA` is one control character; a bare `\c` is a literal backslash and `c`.
+  `/:path(${"(?:\\cA?x|\\x01x)".repeat(26)}c)`,
+  "/:path((?:\\c|\\\\c)+)",
 ]) {
   if (!matchPattern(`/${"a".repeat(3_000)}b`, matcher)) {
     throw new Error(`Unsafe bounded sequence did not fail closed: ${matcher}`);

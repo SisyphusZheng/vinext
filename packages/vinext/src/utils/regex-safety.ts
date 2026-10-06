@@ -339,6 +339,17 @@ class RegexParser {
         Number.parseInt(this.pattern.slice(this.index, this.index + 4), 16),
       );
       this.index += 4;
+    } else if (escaped === "c") {
+      // Annex B: `\c` plus an ASCII letter is one control character. Without
+      // a letter, the backslash is literal and `c` starts the next atom.
+      const letter = this.pattern[this.index];
+      if (letter !== undefined && /[A-Za-z]/.test(letter)) {
+        literal = String.fromCharCode(letter.charCodeAt(0) % 32);
+        this.index++;
+      } else {
+        literal = "\\";
+        this.index--;
+      }
     } else if ("nrtvf0".includes(escaped)) {
       literal = ({ n: "\n", r: "\r", t: "\t", v: "\v", f: "\f", 0: "\0" } as const)[
         escaped as "n" | "r" | "t" | "v" | "f" | "0"
