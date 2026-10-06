@@ -43,6 +43,9 @@ for (const matcher of [
   `/:path(${"(?:a|aa?)".repeat(26)})`,
   `/:path(${"(?:a?|b)".repeat(26)}c)`,
   `/:path(${"(?:a*|b)".repeat(8)}c)`,
+  // A literal `\.` must not share a trie edge with the wildcard `.`.
+  "/:path((?:\\.x|.y|ay)+)",
+  `/:path(${"(?:\\.x|.y|ay|b?z)".repeat(26)}c)`,
 ]) {
   if (!matchPattern(`/${"a".repeat(3_000)}b`, matcher)) {
     throw new Error(`Unsafe bounded sequence did not fail closed: ${matcher}`);
@@ -70,6 +73,16 @@ if (!matchPattern(`/${"a".repeat(3_000)}`, "/:path((?:a+)(?:a+))")) {
 }
 if (matchPattern(`/${"a".repeat(3_000)}b`, "/:path((?:a+)(?:a+))")) {
   throw new Error("Safe two-repeat matcher matched a near miss");
+}
+
+// Out-of-order bounded ranges are invalid; reject them without iterating to
+// the declared maximum.
+const malformedRangeStart = performance.now();
+const malformedRangeIssue = analyzeRegexSafety("(?:(?:a{2,1}){0,4000000000}|b)c");
+const malformedRangeDuration = performance.now() - malformedRangeStart;
+if (!malformedRangeIssue) throw new Error("Malformed bounded range was accepted");
+if (malformedRangeDuration > 1_000) {
+  throw new Error(`Malformed bounded range analysis took ${malformedRangeDuration.toFixed(1)}ms`);
 }
 
 // Keep the analysis itself linear for large, disjoint literal alternations.

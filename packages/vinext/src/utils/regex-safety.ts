@@ -14,6 +14,8 @@ type RegexNode =
   | { kind: "alternation"; branches: RegexNode[] }
   | { kind: "repeat"; child: RegexNode; min: number; max: number };
 
+// Symbol keys are namespaced by kind so a literal `\.` and the wildcard `.`
+// never share a prefix-trie edge and skip the overlap check.
 type RegexSymbol =
   | { kind: "literal"; key: string; value: string }
   | {
@@ -210,7 +212,7 @@ class RegexParser {
     if (character === ".") {
       return this.node({
         kind: "atom",
-        symbol: { kind: "opaque", key: ".", pattern: ".", ignoreCase: this.ignoreCase },
+        symbol: { kind: "opaque", key: "opaque:.", pattern: ".", ignoreCase: this.ignoreCase },
         fixedWidth: true,
       });
     }
@@ -290,7 +292,12 @@ class RegexParser {
       kind: "atom",
       symbol:
         simpleClassSymbol(raw, this.ignoreCase) ??
-        ({ kind: "opaque", key: raw, pattern: raw, ignoreCase: this.ignoreCase } as const),
+        ({
+          kind: "opaque",
+          key: `opaque:${raw}`,
+          pattern: raw,
+          ignoreCase: this.ignoreCase,
+        } as const),
       fixedWidth: true,
     });
   }
@@ -343,7 +350,7 @@ class RegexParser {
     const raw = `\\${escaped}`;
     return this.node({
       kind: "atom",
-      symbol: { kind: "opaque", key: raw, pattern: raw, ignoreCase: this.ignoreCase },
+      symbol: { kind: "opaque", key: `opaque:${raw}`, pattern: raw, ignoreCase: this.ignoreCase },
       fixedWidth: true,
     });
   }
@@ -498,7 +505,8 @@ function fixedWords(node: RegexNode, budget: WordBudget): RegexSymbol[][] | null
       // A bounded repeat such as `woff2?` or `x{1,3}` still has a finite
       // language: the child's words repeated min..max times. Every word is a
       // separate match path, so `(?:a|aa?)` counts as three ambiguous paths.
-      if (!Number.isFinite(node.max)) return null;
+      // Out-of-order ranges such as `{2,1}` are invalid and fail closed.
+      if (!Number.isFinite(node.max) || node.min > node.max) return null;
       let words: RegexSymbol[][] = [[]];
       const childWords = fixedWords(node.child, budget);
       if (!childWords) return null;
