@@ -153,6 +153,7 @@ class RegexParser {
   constructor(
     private readonly pattern: string,
     private readonly ignoreCase: boolean,
+    private readonly namedGroups: boolean,
   ) {}
 
   parse(): RegexNode {
@@ -315,8 +316,9 @@ class RegexParser {
       return this.node({ kind: "atom", symbol: shorthand, fixedWidth: true });
     }
     // Numeric and named backreferences match whatever their group captured, so
-    // their language cannot be modelled from the pattern text.
-    if (escaped === "k" && this.pattern[this.index] === "<") {
+    // their language cannot be modelled from the pattern text. Without named
+    // groups, Annex B reads `\k` as a literal `k`.
+    if (escaped === "k" && this.namedGroups && this.pattern[this.index] === "<") {
       const nameEnd = this.pattern.indexOf(">", this.index);
       this.index = nameEnd === -1 ? this.pattern.length : nameEnd + 1;
       return this.node({ kind: "atom", symbol: null, fixedWidth: false });
@@ -613,28 +615,54 @@ function symbolsMayOverlap(left: RegexSymbol, right: RegexSymbol): boolean {
   return true;
 }
 
+// Whether `word` from `index` on can match a prefix of an existing word, or
+// an existing word can match a prefix of it. Exact-key edges are followed
+// directly. Other edges whose symbols may overlap are explored too, so `\.x`
+// and `.y` stay disjoint through their second symbol. Every step off the
+// exact path counts against the comparison budget.
+function wordMayCollide(
+  node: TrieNode,
+  word: RegexSymbol[],
+  index: number,
+  comparisons: { count: number },
+  branched: boolean,
+): boolean {
+  if (node.terminal) return true;
+  if (index === word.length) return node.edges.size > 0;
+  if (branched && ++comparisons.count > MAX_OPAQUE_COMPARISONS) return true;
+  const symbol = word[index];
+  const exact = node.edges.get(symbol.key);
+  if (exact && wordMayCollide(exact.node, word, index + 1, comparisons, branched)) return true;
+  const candidates = symbol.kind === "literal" ? node.complexEdges : node.edges.values();
+  for (const candidate of candidates) {
+    if (candidate === exact) continue;
+    if (++comparisons.count > MAX_OPAQUE_COMPARISONS) return true;
+    if (
+      symbolsMayOverlap(candidate.symbol, symbol) &&
+      wordMayCollide(candidate.node, word, index + 1, comparisons, true)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function insertPrefixFreeWord(
   root: TrieNode,
   word: RegexSymbol[],
   comparisons: { count: number },
 ): boolean {
+  if (wordMayCollide(root, word, 0, comparisons, false)) return false;
   let node = root;
   for (const symbol of word) {
-    if (node.terminal) return false;
     let edge = node.edges.get(symbol.key);
     if (!edge) {
-      const candidates = symbol.kind === "literal" ? node.complexEdges : node.edges.values();
-      for (const candidate of candidates) {
-        if (++comparisons.count > MAX_OPAQUE_COMPARISONS) return false;
-        if (symbolsMayOverlap(candidate.symbol, symbol)) return false;
-      }
       edge = { symbol, node: createTrieNode() };
       node.edges.set(symbol.key, edge);
       if (symbol.kind !== "literal") node.complexEdges.push(edge);
     }
     node = edge.node;
   }
-  if (node.terminal || node.edges.size > 0) return false;
   node.terminal = true;
   return true;
 }
@@ -864,20 +892,37 @@ function findSafetyIssue(node: RegexNode): RegexSafetyIssue | null {
   }
 }
 
+/**
+ * Whether a RegExp source may declare a named group, which turns `\k<name>`
+ * into a backreference. Matches inside classes or after an escaped `(` only
+ * make the analysis fail closed.
+ */
+export function mayHaveNamedGroups(pattern: string): boolean {
+  return /\(\?<(?![=!])/.test(pattern);
+}
+
+/**
+ * `namedGroups` must describe the whole compiled RegExp when `pattern` is only
+ * a fragment of it. It defaults to scanning `pattern` itself.
+ */
 export function analyzeRegexSafety(
   pattern: string,
-  options: { ignoreCase?: boolean } = {},
+  options: { ignoreCase?: boolean; namedGroups?: boolean } = {},
 ): RegexSafetyIssue | null {
   if (pattern.length > MAX_PATTERN_LENGTH) return "analysis budget exceeded";
-  const parser = new RegexParser(pattern, options.ignoreCase === true);
+  const parser = new RegexParser(
+    pattern,
+    options.ignoreCase === true,
+    options.namedGroups ?? mayHaveNamedGroups(pattern),
+  );
   const node = parser.parse();
   if (parser.exceededBudget) return "analysis budget exceeded";
   return findSafetyIssue(node);
 }
 
 export function regexAtomsMayOverlap(left: string, right: string, ignoreCase = false): boolean {
-  const leftParser = new RegexParser(left, ignoreCase);
-  const rightParser = new RegexParser(right, ignoreCase);
+  const leftParser = new RegexParser(left, ignoreCase, true);
+  const rightParser = new RegexParser(right, ignoreCase, true);
   const leftNode = leftParser.parse();
   const rightNode = rightParser.parse();
   const leftWords = fixedWords(leftNode, { words: 0, symbols: 0, exceeded: false });

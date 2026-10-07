@@ -49,6 +49,8 @@ for (const matcher of [
   // `\cA` is one control character; a bare `\c` is a literal backslash and `c`.
   `/:path(${"(?:\\cA?x|\\x01x)".repeat(26)}c)`,
   "/:path((?:\\c|\\\\c)+)",
+  // `\k<z>` is a backreference when any token of the matcher names a group.
+  "/:a((?<z>a))/:b((?:\\k<z>x|ax)+c)",
 ]) {
   if (!matchPattern(`/${"a".repeat(3_000)}b`, matcher)) {
     throw new Error(`Unsafe bounded sequence did not fail closed: ${matcher}`);
@@ -67,6 +69,10 @@ for (const pattern of [
   "(?:(?:a+){1}){1,1}(?:b+){1}(?:(?:a+){1,1}){1}",
   "[^/]+.*",
   "[^?]*\\.(?:html?|jpe?g|woff2?)",
+  // Overlapping first symbols are disjoint through their suffixes.
+  "(?:\\.x|.y)+",
+  // Without named groups, Annex B reads `\k<z>` as the literal text `k<z>`.
+  "(?:\\k<z>x|qx)+",
 ]) {
   const issue = analyzeRegexSafety(pattern, { ignoreCase: true });
   if (issue) throw new Error(`Safe sequence was rejected: ${pattern} (${issue})`);

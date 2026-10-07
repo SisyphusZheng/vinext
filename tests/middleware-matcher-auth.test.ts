@@ -467,6 +467,7 @@ describe("unsafe middleware matcher rejection", () => {
     [`/:path(${"(?:\\.x|.y|ay|b?z)".repeat(26)}c)`, /contains ambiguous sequence expansion/],
     [`/:path(${"(?:\\cA?x|\\x01x)".repeat(26)}c)`, /contains ambiguous sequence expansion/],
     ["/:path((?:\\c|\\\\c)+)", /contains ambiguous alternatives under repetition/],
+    ["/:a((?<z>a))/:b((?:\\k<z>x|ax)+c)", /contains ambiguous alternatives under repetition/],
     ["/:path(a+.*a+)", /contains overlapping sequential repetition/],
     ["/:path(a+(?:b*)a+)", /contains overlapping sequential repetition/],
   ] as const)(
