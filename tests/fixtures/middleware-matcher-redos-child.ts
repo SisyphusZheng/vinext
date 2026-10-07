@@ -73,6 +73,8 @@ for (const pattern of [
   "(?:\\.x|.y)+",
   // Without named groups, Annex B reads `\k<z>` as the literal text `k<z>`.
   "(?:\\k<z>x|qx)+",
+  // An escaped `\(` cannot open a named group.
+  "\\(?<(?:\\k<z>x|qx)+",
 ]) {
   const issue = analyzeRegexSafety(pattern, { ignoreCase: true });
   if (issue) throw new Error(`Safe sequence was rejected: ${pattern} (${issue})`);

@@ -893,12 +893,29 @@ function findSafetyIssue(node: RegexNode): RegexSafetyIssue | null {
 }
 
 /**
- * Whether a RegExp source may declare a named group, which turns `\k<name>`
- * into a backreference. Matches inside classes or after an escaped `(` only
- * make the analysis fail closed.
+ * Whether a RegExp source declares a named group, which turns `\k<name>` into
+ * a backreference. Escaped characters and character classes cannot open one.
  */
 export function mayHaveNamedGroups(pattern: string): boolean {
-  return /\(\?<(?![=!])/.test(pattern);
+  let inClass = false;
+  for (let index = 0; index < pattern.length; index++) {
+    const character = pattern[index];
+    if (character === "\\") {
+      index++;
+    } else if (inClass) {
+      if (character === "]") inClass = false;
+    } else if (character === "[") {
+      inClass = true;
+    } else if (
+      character === "(" &&
+      pattern.startsWith("?<", index + 1) &&
+      pattern[index + 3] !== "=" &&
+      pattern[index + 3] !== "!"
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
